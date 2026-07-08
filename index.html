@@ -233,6 +233,7 @@
         </div>
       </article>
     </section>
+    <div style="text-align:right;color:var(--muted);font-size:.68rem;margin-top:.5rem;margin-bottom:1rem;font-weight:600">Fonte: GSAN Comercial</div>
     <!-- ===== FIM META 130K ===== -->
 
     <footer id="footer"></footer>
@@ -267,7 +268,7 @@
       const startDate=new Date(BI.periodStart+'T00:00:00').toLocaleDateString('pt-BR');
       const endDate=new Date(BI.periodEnd+'T00:00:00').toLocaleDateString('pt-BR');
       $('qualityText').textContent=`Período de instalações: ${startDate} a ${endDate}. O parque de hidrômetro possui ${nf.format(BI.totalRaw)} registros; ${nf.format(BI.excludedBeforePeriod)} registros anteriores a 2016.`;
-      $('footer').textContent=`Fonte: ${BI.source} • Período: ${startDate} a ${endDate} • BI gerado em ${BI.generatedAt} • Dados processados localmente.`;
+      $('footer').textContent=`Fonte: GSAN Comercial • Período: ${startDate} a ${endDate} • BI gerado em ${BI.generatedAt} • Dados processados localmente.`;
       render();
     }
     function debounce(fn,ms){let t;return()=>{clearTimeout(t);t=setTimeout(fn,ms)}}
@@ -301,7 +302,7 @@
     const anos=[2026,2027,2028,2029,2030,2031,2032];
     const metaAnual=[7700,8470,9317,10249,11274,12401,13641];
     const acumulado=[67015,75485,84802,95051,106324,118725,132366];
-    const realizado2026=ATUAL_TOTAL-BASE; // 4745
+    const realizado2026=ATUAL_TOTAL-BASE;
 
     // Progress bar
     setTimeout(()=>{
@@ -315,11 +316,9 @@
     // Table
     const tbody=document.getElementById('metaTableBody');
     if(tbody){
-      // Pre-2026 row
       const r0=document.createElement('tr');
-      r0.innerHTML='<td>2016–2025</td><td>—</td><td>'+BASE.toLocaleString('pt-BR')+'</td><td>'+BASE.toLocaleString('pt-BR')+'</td><td>'+((BASE/META)*100).toFixed(1)+'%</td><td><span class="meta-badge progress">Base</span></td>';
+      r0.innerHTML='<td>2016\u20132025</td><td>\u2014</td><td>'+BASE.toLocaleString('pt-BR')+'</td><td>'+BASE.toLocaleString('pt-BR')+'</td><td>'+((BASE/META)*100).toFixed(1)+'%</td><td><span class="meta-badge progress">Base</span></td>';
       tbody.appendChild(r0);
-
       anos.forEach((ano,i)=>{
         const tr=document.createElement('tr');
         const pct=((acumulado[i]/META)*100).toFixed(1);
@@ -327,10 +326,8 @@
         const isCurrent=ano===2026;
         if(isGoal) tr.className='goal-row';
         if(isCurrent) tr.className='current-row';
-
-        const realCol=isCurrent?realizado2026.toLocaleString('pt-BR'):'—';
-        const statusHtml=isGoal?'<span class="meta-badge achieved">✅ Atingida</span>':isCurrent?'<span class="meta-badge progress">🔄 '+((realizado2026/metaAnual[i])*100).toFixed(0)+'% em andamento</span>':'<span class="meta-badge pending">Projetado</span>';
-
+        const realCol=isCurrent?realizado2026.toLocaleString('pt-BR'):'\u2014';
+        const statusHtml=isGoal?'<span class="meta-badge achieved">\u2705 Atingida</span>':isCurrent?'<span class="meta-badge progress">\ud83d\udd04 '+((realizado2026/metaAnual[i])*100).toFixed(0)+'% em andamento</span>':'<span class="meta-badge pending">Projetado</span>';
         tr.innerHTML='<td>'+ano+'</td><td>'+metaAnual[i].toLocaleString('pt-BR')+'</td><td>'+realCol+'</td><td>'+acumulado[i].toLocaleString('pt-BR')+'</td><td>'+pct+'%</td><td>'+statusHtml+'</td>';
         tbody.appendChild(tr);
       });
@@ -340,12 +337,10 @@
     const canvas=document.getElementById('metaChart');
     if(!canvas||typeof Chart==='undefined') return;
     const ctx=canvas.getContext('2d');
-
     const isDark=document.documentElement.dataset.theme!=='light';
     const gridColor=isDark?'rgba(125,211,252,.08)':'rgba(2,132,199,.08)';
     const textColor=isDark?'#91a4b7':'#60758a';
-
-    const labels=['Até 2025',...anos.map(String)];
+    const labels=['At\u00e9 2025',...anos.map(String)];
     const acumFull=[BASE,...acumulado];
     const anualFull=[null,...metaAnual];
 
@@ -354,8 +349,34 @@
       data:{
         labels:labels,
         datasets:[
-          {label:'Meta anual',data:anualFull,backgroundColor:'rgba(14,165,233,.65)',borderColor:'rgba(14,165,233,.9)',borderWidth:1,borderRadius:6,order:2,yAxisID:'y1',barPercentage:.55},
-          {label:'Acumulado',data:acumFull,type:'line',borderColor:'#34d399',backgroundColor:'rgba(52,211,153,.08)',borderWidth:3,pointRadius:5,pointHoverRadius:8,pointBackgroundColor:acumFull.map(v=>v>=META?'#34d399':'#0ea5e9'),pointBorderColor:isDark?'#0f1c2d':'#fff',pointBorderWidth:2,fill:true,tension:.35,order:1,yAxisID:'y'}
+          {
+            label:'Meta anual',data:anualFull,
+            backgroundColor:'rgba(14,165,233,.65)',borderColor:'rgba(14,165,233,.9)',
+            borderWidth:1,borderRadius:6,order:2,yAxisID:'y1',barPercentage:.55,
+            datalabels:{
+              display:function(c){return c.dataset.data[c.dataIndex]!==null;},
+              anchor:'center',align:'center',rotation:-90,
+              color:'#fff',
+              font:{family:'Inter',size:10,weight:'800'},
+              formatter:function(v){return v===null?'':v.toLocaleString('pt-BR');}
+            }
+          },
+          {
+            label:'Acumulado',data:acumFull,type:'line',
+            borderColor:'#34d399',backgroundColor:'rgba(52,211,153,.08)',borderWidth:3,
+            pointRadius:5,pointHoverRadius:8,
+            pointBackgroundColor:acumFull.map(function(v){return v>=META?'#34d399':'#0ea5e9';}),
+            pointBorderColor:isDark?'#0f1c2d':'#fff',pointBorderWidth:2,
+            fill:true,tension:.35,order:1,yAxisID:'y',
+            datalabels:{
+              display:true,anchor:'end',align:'top',offset:6,
+              color:function(c){return c.dataset.data[c.dataIndex]>=META?'#34d399':textColor;},
+              font:{family:'Inter',size:10,weight:'700'},
+              formatter:function(v){if(v===null)return'';var p=((v/META)*100).toFixed(1);return [v.toLocaleString('pt-BR'), '('+p+'%)'];},
+              backgroundColor:isDark?'rgba(15,28,45,.8)':'rgba(255,255,255,.8)',
+              borderRadius:4,padding:{top:2,bottom:2,left:4,right:4}
+            }
+          }
         ]
       },
       plugins:[ChartDataLabels],
@@ -366,8 +387,8 @@
           legend:{position:'top',align:'end',labels:{color:textColor,font:{family:'Inter',size:11,weight:'600'},usePointStyle:true,pointStyle:'circle',padding:16}},
           tooltip:{backgroundColor:isDark?'rgba(15,28,45,.95)':'rgba(255,255,255,.95)',titleColor:isDark?'#e8f1f8':'#122235',bodyColor:textColor,borderColor:isDark?'rgba(125,211,252,.16)':'rgba(2,132,199,.18)',borderWidth:1,cornerRadius:10,padding:12,titleFont:{family:'Inter',size:13,weight:'700'},bodyFont:{family:'Inter',size:12},
             callbacks:{label:function(c){var v=c.parsed.y;if(v===null)return'';var f=v.toLocaleString('pt-BR');if(c.dataset.label==='Acumulado'){var p=((v/META)*100).toFixed(1);return' '+c.dataset.label+': '+f+' ('+p+'%)';}return' '+c.dataset.label+': '+f;}}},
-          annotation:{annotations:{goalLine:{type:'line',yMin:META,yMax:META,yScaleID:'y',borderColor:'#fb7185',borderWidth:2,borderDash:[8,5],label:{display:true,content:'🎯 META: 130.000',position:'start',backgroundColor:isDark?'rgba(251,113,133,.12)':'rgba(190,18,60,.1)',color:'#fb7185',font:{family:'Inter',size:11,weight:'700'},padding:{top:3,bottom:3,left:8,right:8},borderRadius:6}}}},
-          datalabels:{display:function(c){return c.dataset.label==='Acumulado';},color:function(c){return c.dataset.data[c.dataIndex]>=META?'#34d399':textColor;},anchor:'end',align:'bottom',offset:4,font:{family:'Inter',size:10,weight:'600'},formatter:function(v){return v===null?'':v.toLocaleString('pt-BR');}}
+          annotation:{annotations:{goalLine:{type:'line',yMin:META,yMax:META,yScaleID:'y',borderColor:'#fb7185',borderWidth:2,borderDash:[8,5],label:{display:true,content:'\ud83c\udfaf META: 130.000',position:'start',backgroundColor:isDark?'rgba(251,113,133,.12)':'rgba(190,18,60,.1)',color:'#fb7185',font:{family:'Inter',size:11,weight:'700'},padding:{top:3,bottom:3,left:8,right:8},borderRadius:6}}}},
+          datalabels:{}
         },
         scales:{
           x:{grid:{color:gridColor},ticks:{color:textColor,font:{family:'Inter',size:11,weight:'600'}}},
@@ -379,11 +400,8 @@
     });
 
     // Theme toggle sync
-    const tog=document.getElementById('themeToggle');
-    if(tog){
-      const orig=tog.onclick;
-      tog.addEventListener('click',function(){setTimeout(()=>location.reload(),100);});
-    }
+    var tog=document.getElementById('themeToggle');
+    if(tog){tog.addEventListener('click',function(){setTimeout(function(){location.reload();},100);});}
   })();
   </script>
 </body>
