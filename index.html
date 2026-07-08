@@ -8,6 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <style>
     /* Tokens do Portal CAEMA (portal/auth-assets/auth.css) */
     :root{
@@ -108,6 +111,42 @@
     footer{text-align:center;color:var(--footer);font-size:.68rem;margin-top:1.4rem}
     @media(max-width:950px){.filters{grid-template-columns:repeat(2,1fr)}.grid,.grid.equal{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
     @media(max-width:560px){main,header{width:96vw}.filters,.kpis{grid-template-columns:1fr}.filters button{width:100%}.donut-wrap{grid-template-columns:1fr}.chart-card,.table-card{padding:1.1rem}.table-tools{align-items:stretch;flex-direction:column}.table-tools input,.table-tools button{width:100%}}
+
+    /* === META 130K TRACKING === */
+    .meta-section-title{display:flex;align-items:center;gap:.7rem;margin:2rem 0 1rem;font-size:1.1rem;font-weight:800;letter-spacing:-.02em;font-family:"Plus Jakarta Sans",Inter,sans-serif}
+    .meta-section-title .meta-icon{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1rem;background:var(--brand-soft);border:1px solid var(--border)}
+    .meta-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+    .meta-kpi{padding:1rem 1.15rem;border-radius:18px;position:relative;overflow:hidden}
+    .meta-kpi:after{content:"";position:absolute;width:80px;height:80px;border-radius:50%;right:-24px;top:-28px;background:var(--accent-color);opacity:.12}
+    .meta-kpi .mk-label{font-size:.62rem;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.09em}
+    .meta-kpi .mk-value{font-size:clamp(1.4rem,2vw,1.85rem);font-weight:900;margin-top:.25rem;line-height:1.1;letter-spacing:-.02em}
+    .meta-kpi .mk-sub{font-size:.7rem;color:var(--muted);margin-top:.25rem}
+    .progress-wrap{padding:1.15rem 1.25rem;margin-bottom:14px}
+    .progress-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.7rem}
+    .progress-header .p-title{font-size:.82rem;font-weight:700}
+    .progress-header .p-pct{font-size:1.3rem;font-weight:900;color:var(--brand)}
+    .progress-track{width:100%;height:14px;background:var(--track);border-radius:999px;overflow:hidden;position:relative}
+    .progress-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--brand),#2dd4bf);transition:width 1.5s ease}
+    .progress-fill::after{content:"";position:absolute;right:0;top:0;width:4px;height:100%;background:#fff;border-radius:2px;box-shadow:0 0 8px rgba(255,255,255,.4)}
+    .progress-labels{display:flex;justify-content:space-between;margin-top:.5rem;font-size:.65rem;color:var(--muted);font-weight:600}
+    .meta-chart-container{position:relative;height:380px}
+    .meta-table-wrap{overflow:auto;max-height:360px;border:1px solid var(--border);border-radius:16px;margin-top:1rem}
+    .meta-table-wrap table{width:100%;border-collapse:collapse;font-size:.8rem}
+    .meta-table-wrap th{position:sticky;top:0;background:var(--table-head);text-align:left;color:var(--muted);font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;z-index:1}
+    .meta-table-wrap th,
+    .meta-table-wrap td{padding:.7rem .9rem;border-bottom:1px solid var(--row-border)}
+    .meta-table-wrap td{font-variant-numeric:tabular-nums}
+    .meta-table-wrap th:nth-child(n+2),
+    .meta-table-wrap td:nth-child(n+2){text-align:right}
+    .meta-table-wrap tr.goal-row{background:rgba(52,211,153,.08)}
+    .meta-table-wrap tr.goal-row td{color:var(--success);font-weight:700}
+    .meta-table-wrap tr.current-row{background:var(--brand-soft)}
+    .meta-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:.65rem;font-weight:700}
+    .meta-badge.achieved{background:rgba(52,211,153,.14);color:var(--success);border:1px solid rgba(52,211,153,.3)}
+    .meta-badge.progress{background:var(--brand-soft);color:var(--brand);border:1px solid var(--border)}
+    .meta-badge.pending{color:var(--muted)}
+    @media(max-width:950px){.meta-kpis{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:560px){.meta-kpis{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -165,6 +204,37 @@
       <div class="chart-head"><div><h2>Ranking completo de bairros</h2><p id="tableSummary">Todos os bairros do recorte</p></div><div class="table-tools"><input id="bairroSearch" type="search" placeholder="Pesquisar bairro..." aria-label="Pesquisar bairro"><button class="btn-primary" id="exportCsv">Exportar ranking CSV</button></div></div>
       <div class="table-wrap"><table><thead><tr><th>#</th><th>Bairro</th><th>Instalações</th><th>Participação</th></tr></thead><tbody id="bairroTable"></tbody></table></div>
     </section>
+
+    <!-- ===== META 130.000 TRACKING SECTION ===== -->
+    <div class="meta-section-title"><div class="meta-icon">🎯</div> Acompanhamento da Meta — 130.000 Hidrômetros</div>
+
+    <section class="meta-kpis">
+      <article class="card meta-kpi" style="--accent-color:var(--brand)"><div class="mk-label">Meta do Acordo</div><div class="mk-value">130.000</div><div class="mk-sub">Hidrômetros totais</div></article>
+      <article class="card meta-kpi" style="--accent-color:var(--success)"><div class="mk-label">Já Realizados</div><div class="mk-value" id="mkRealizados">64.060</div><div class="mk-sub">2016 até hoje</div></article>
+      <article class="card meta-kpi" style="--accent-color:var(--warning)"><div class="mk-label">Meta 2026</div><div class="mk-value">7.700</div><div class="mk-sub" id="mkMeta2026Sub">4.745 realizados (61,6%)</div></article>
+      <article class="card meta-kpi" style="--accent-color:var(--danger)"><div class="mk-label">Previsão Conclusão</div><div class="mk-value">2032</div><div class="mk-sub">132.366 acumulados</div></article>
+    </section>
+
+    <section class="card progress-wrap">
+      <div class="progress-header"><span class="p-title">Progresso geral rumo à meta de 130.000</span><span class="p-pct" id="metaPct">0%</span></div>
+      <div class="progress-track"><div class="progress-fill" id="metaBar" style="width:0%"></div></div>
+      <div class="progress-labels"><span>0</span><span>64.060 realizados</span><span>130.000</span></div>
+    </section>
+
+    <section class="grid">
+      <article class="card chart-card">
+        <div class="chart-head"><div><h2>Projeção anual vs. acumulado</h2><p>Barras: meta anual · Linha: acumulado · Tracejado: meta 130.000 · Crescimento de 10% a.a.</p></div></div>
+        <div class="meta-chart-container"><canvas id="metaChart"></canvas></div>
+      </article>
+      <article class="card chart-card">
+        <div class="chart-head"><div><h2>Detalhamento por ano</h2><p>Metas anuais, acumulado e progresso em relação ao acordo</p></div></div>
+        <div class="meta-table-wrap">
+          <table><thead><tr><th>Ano</th><th>Meta anual</th><th>Realizado</th><th>Acumulado</th><th>% da meta</th><th>Status</th></tr></thead><tbody id="metaTableBody"></tbody></table>
+        </div>
+      </article>
+    </section>
+    <!-- ===== FIM META 130K ===== -->
+
     <footer id="footer"></footer>
   </main>
 
@@ -223,6 +293,98 @@
     function renderTable(){const q=$('bairroSearch').value.trim().toLocaleUpperCase('pt-BR'),rows=bairroRanking.filter(x=>!q||x.label.toLocaleUpperCase('pt-BR').includes(q)),t=bairroRanking.reduce((s,x)=>s+x.value,0),max=bairroRanking[0]?.value||1;$('bairroTable').innerHTML=rows.map((d,i)=>`<tr><td>${i+1}</td><td>${esc(d.label)}</td><td>${nf.format(d.value)}</td><td><div class="share"><div class="mini-bar"><i style="width:${d.value/max*100}%"></i></div><b>${t?pf.format(d.value/t):'0,0%'}</b></div></td></tr>`).join('');$('tableSummary').textContent=`${nf.format(rows.length)} bairro(s) exibido(s) • ${nf.format(t)} instalações no recorte`;}
     function exportRanking(){const t=bairroRanking.reduce((s,x)=>s+x.value,0);const lines=['Posição;Bairro;Instalações;Participação'];bairroRanking.forEach((d,i)=>lines.push(`${i+1};"${d.label.replaceAll('"','""')}";${d.value};${t?(d.value/t*100).toFixed(2).replace('.',','):0}%`));const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='ranking_bairros_hidrometros.csv';a.click();URL.revokeObjectURL(a.href);}
     init();
+  </script>
+  <script>
+  // === META 130K CHART ===
+  (function(){
+    const META=130000, BASE=59315, ATUAL_TOTAL=64060;
+    const anos=[2026,2027,2028,2029,2030,2031,2032];
+    const metaAnual=[7700,8470,9317,10249,11274,12401,13641];
+    const acumulado=[67015,75485,84802,95051,106324,118725,132366];
+    const realizado2026=ATUAL_TOTAL-BASE; // 4745
+
+    // Progress bar
+    setTimeout(()=>{
+      const pct=((ATUAL_TOTAL/META)*100).toFixed(1);
+      const bar=document.getElementById('metaBar');
+      const pctEl=document.getElementById('metaPct');
+      if(bar) bar.style.width=pct+'%';
+      if(pctEl) pctEl.textContent=pct+'%';
+    },800);
+
+    // Table
+    const tbody=document.getElementById('metaTableBody');
+    if(tbody){
+      // Pre-2026 row
+      const r0=document.createElement('tr');
+      r0.innerHTML='<td>2016–2025</td><td>—</td><td>'+BASE.toLocaleString('pt-BR')+'</td><td>'+BASE.toLocaleString('pt-BR')+'</td><td>'+((BASE/META)*100).toFixed(1)+'%</td><td><span class="meta-badge progress">Base</span></td>';
+      tbody.appendChild(r0);
+
+      anos.forEach((ano,i)=>{
+        const tr=document.createElement('tr');
+        const pct=((acumulado[i]/META)*100).toFixed(1);
+        const isGoal=acumulado[i]>=META;
+        const isCurrent=ano===2026;
+        if(isGoal) tr.className='goal-row';
+        if(isCurrent) tr.className='current-row';
+
+        const realCol=isCurrent?realizado2026.toLocaleString('pt-BR'):'—';
+        const statusHtml=isGoal?'<span class="meta-badge achieved">✅ Atingida</span>':isCurrent?'<span class="meta-badge progress">🔄 '+((realizado2026/metaAnual[i])*100).toFixed(0)+'% em andamento</span>':'<span class="meta-badge pending">Projetado</span>';
+
+        tr.innerHTML='<td>'+ano+'</td><td>'+metaAnual[i].toLocaleString('pt-BR')+'</td><td>'+realCol+'</td><td>'+acumulado[i].toLocaleString('pt-BR')+'</td><td>'+pct+'%</td><td>'+statusHtml+'</td>';
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Chart
+    const canvas=document.getElementById('metaChart');
+    if(!canvas||typeof Chart==='undefined') return;
+    const ctx=canvas.getContext('2d');
+
+    const isDark=document.documentElement.dataset.theme!=='light';
+    const gridColor=isDark?'rgba(125,211,252,.08)':'rgba(2,132,199,.08)';
+    const textColor=isDark?'#91a4b7':'#60758a';
+
+    const labels=['Até 2025',...anos.map(String)];
+    const acumFull=[BASE,...acumulado];
+    const anualFull=[null,...metaAnual];
+
+    new Chart(ctx,{
+      type:'bar',
+      data:{
+        labels:labels,
+        datasets:[
+          {label:'Meta anual',data:anualFull,backgroundColor:'rgba(14,165,233,.65)',borderColor:'rgba(14,165,233,.9)',borderWidth:1,borderRadius:6,order:2,yAxisID:'y1',barPercentage:.55},
+          {label:'Acumulado',data:acumFull,type:'line',borderColor:'#34d399',backgroundColor:'rgba(52,211,153,.08)',borderWidth:3,pointRadius:5,pointHoverRadius:8,pointBackgroundColor:acumFull.map(v=>v>=META?'#34d399':'#0ea5e9'),pointBorderColor:isDark?'#0f1c2d':'#fff',pointBorderWidth:2,fill:true,tension:.35,order:1,yAxisID:'y'}
+        ]
+      },
+      plugins:[ChartDataLabels],
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{position:'top',align:'end',labels:{color:textColor,font:{family:'Inter',size:11,weight:'600'},usePointStyle:true,pointStyle:'circle',padding:16}},
+          tooltip:{backgroundColor:isDark?'rgba(15,28,45,.95)':'rgba(255,255,255,.95)',titleColor:isDark?'#e8f1f8':'#122235',bodyColor:textColor,borderColor:isDark?'rgba(125,211,252,.16)':'rgba(2,132,199,.18)',borderWidth:1,cornerRadius:10,padding:12,titleFont:{family:'Inter',size:13,weight:'700'},bodyFont:{family:'Inter',size:12},
+            callbacks:{label:function(c){var v=c.parsed.y;if(v===null)return'';var f=v.toLocaleString('pt-BR');if(c.dataset.label==='Acumulado'){var p=((v/META)*100).toFixed(1);return' '+c.dataset.label+': '+f+' ('+p+'%)';}return' '+c.dataset.label+': '+f;}}},
+          annotation:{annotations:{goalLine:{type:'line',yMin:META,yMax:META,yScaleID:'y',borderColor:'#fb7185',borderWidth:2,borderDash:[8,5],label:{display:true,content:'🎯 META: 130.000',position:'start',backgroundColor:isDark?'rgba(251,113,133,.12)':'rgba(190,18,60,.1)',color:'#fb7185',font:{family:'Inter',size:11,weight:'700'},padding:{top:3,bottom:3,left:8,right:8},borderRadius:6}}}},
+          datalabels:{display:function(c){return c.dataset.label==='Acumulado';},color:function(c){return c.dataset.data[c.dataIndex]>=META?'#34d399':textColor;},anchor:'end',align:'bottom',offset:4,font:{family:'Inter',size:10,weight:'600'},formatter:function(v){return v===null?'':v.toLocaleString('pt-BR');}}
+        },
+        scales:{
+          x:{grid:{color:gridColor},ticks:{color:textColor,font:{family:'Inter',size:11,weight:'600'}}},
+          y:{position:'left',title:{display:true,text:'ACUMULADO',color:textColor,font:{family:'Inter',size:10,weight:'600'}},min:0,max:150000,grid:{color:gridColor},ticks:{color:textColor,font:{family:'Inter',size:10},callback:function(v){return(v/1000).toFixed(0)+'k';},stepSize:25000}},
+          y1:{position:'right',title:{display:true,text:'META ANUAL',color:textColor,font:{family:'Inter',size:10,weight:'600'}},min:0,max:20000,grid:{drawOnChartArea:false},ticks:{color:textColor,font:{family:'Inter',size:10},callback:function(v){return(v/1000).toFixed(0)+'k';},stepSize:5000}}
+        },
+        animation:{duration:1200,easing:'easeOutQuart'}
+      }
+    });
+
+    // Theme toggle sync
+    const tog=document.getElementById('themeToggle');
+    if(tog){
+      const orig=tog.onclick;
+      tog.addEventListener('click',function(){setTimeout(()=>location.reload(),100);});
+    }
+  })();
   </script>
 </body>
 </html>

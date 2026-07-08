@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acompanhamento de Hidrômetros - Meta 130.000</title>
+    <meta name="description" content="Painel de acompanhamento da meta de instalação de 130.000 hidrômetros">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: #1a2035;
+            --bg-card-hover: #1f2847;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-purple: #8b5cf6;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border-color: rgba(255,255,255,0.06);
+            --glass-bg: rgba(255,255,255,0.03);
+            --gradient-blue: linear-gradient(135deg, #3b82f6, #06b6d4);
+            --gradient-emerald: linear-gradient(135deg, #10b981, #06b6d4);
+            --gradient-amber: linear-gradient(135deg, #f59e0b, #f97316);
+            --gradient-rose: linear-gradient(135deg, #f43f5e, #ec4899);
+            --shadow-glow: 0 0 30px rgba(59,130,246,0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(ellipse at 20% 20%, rgba(59,130,246,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(6,182,212,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(16,185,129,0.04) 0%, transparent 60%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .dashboard {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            animation: fadeInDown 0.8s ease;
+        }
+
+        .header-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            background: rgba(59,130,246,0.1);
+            border: 1px solid rgba(59,130,246,0.2);
+            border-radius: 24px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 16px;
+        }
+
+        .header-badge .dot {
+            width: 6px;
+            height: 6px;
+            background: var(--accent-emerald);
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #f1f5f9, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .header p {
+            font-size: 16px;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        /* KPI Cards */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 32px;
+            animation: fadeInUp 0.8s ease 0.2s both;
+        }
+
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .kpi-card:hover {
+            background: var(--bg-card-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            border-radius: 16px 16px 0 0;
+        }
+
+        .kpi-card:nth-child(1)::before { background: var(--gradient-blue); }
+        .kpi-card:nth-child(2)::before { background: var(--gradient-emerald); }
+        .kpi-card:nth-child(3)::before { background: var(--gradient-amber); }
+        .kpi-card:nth-child(4)::before { background: var(--gradient-rose); }
+
+        .kpi-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 4px;
+        }
+
+        .kpi-card:nth-child(1) .kpi-value { color: var(--accent-blue); }
+        .kpi-card:nth-child(2) .kpi-value { color: var(--accent-emerald); }
+        .kpi-card:nth-child(3) .kpi-value { color: var(--accent-amber); }
+        .kpi-card:nth-child(4) .kpi-value { color: var(--accent-rose); }
+
+        .kpi-sub {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Progress Bar */
+        .progress-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 32px;
+            animation: fadeInUp 0.8s ease 0.3s both;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .progress-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .progress-percent {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--accent-cyan);
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4, #10b981);
+            background-size: 200% 100%;
+            animation: shimmer 3s ease infinite;
+            transition: width 2s ease;
+            position: relative;
+        }
+
+        .progress-bar-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 4px;
+            height: 100%;
+            background: white;
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+
+        .progress-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Charts Section */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 28px;
+            animation: fadeInUp 0.8s ease 0.4s both;
+        }
+
+        .chart-card-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .chart-card-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 420px;
+        }
+
+        /* Table Section */
+        .table-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 28px;
+            animation: fadeInUp 0.8s ease 0.5s both;
+            overflow-x: auto;
+        }
+
+        .table-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead th {
+            padding: 12px 16px;
+            text-align: right;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        thead th:first-child {
+            text-align: left;
+        }
+
+        tbody td {
+            padding: 14px 16px;
+            text-align: right;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        tbody td:first-child {
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        tbody tr:hover {
+            background: rgba(255,255,255,0.02);
+        }
+
+        tbody tr.goal-reached {
+            background: rgba(16,185,129,0.08);
+        }
+
+        tbody tr.goal-reached td {
+            color: var(--accent-emerald);
+        }
+
+        .badge-goal {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            background: rgba(16,185,129,0.15);
+            border: 1px solid rgba(16,185,129,0.3);
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent-emerald);
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 32px 0 16px;
+            font-size: 12px;
+            color: var(--text-muted);
+            animation: fadeInUp 0.8s ease 0.6s both;
+        }
+
+        /* Animations */
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.5); }
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        @keyframes countUp {
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .kpi-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .header h1 {
+                font-size: 26px;
+            }
+            .kpi-value {
+                font-size: 26px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .kpi-grid {
+                grid-template-columns: 1fr;
+            }
+            .dashboard {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-badge">
+                <span class="dot"></span>
+                Painel de Acompanhamento
+            </div>
+            <h1>Meta de Hidrômetros — 130.000</h1>
+            <p>Projeção de instalação com crescimento anual de 10% a partir de 2026</p>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Meta do Acordo</div>
+                <div class="kpi-value">130.000</div>
+                <div class="kpi-sub">Hidrômetros totais</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Já Realizados (2016–2025)</div>
+                <div class="kpi-value">59.315</div>
+                <div class="kpi-sub">Hidrômetros instalados</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Meta 2026</div>
+                <div class="kpi-value">7.700</div>
+                <div class="kpi-sub">+10% ao ano</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Ano da Meta Atingida</div>
+                <div class="kpi-value">2032</div>
+                <div class="kpi-sub">132.366 acumulados</div>
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-section">
+            <div class="progress-header">
+                <span class="progress-title">Progresso Geral até 2025</span>
+                <span class="progress-percent" id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressBar" style="width: 0%"></div>
+            </div>
+            <div class="progress-labels">
+                <span>0</span>
+                <span>59.315 realizados</span>
+                <span>130.000</span>
+            </div>
+        </div>
+
+        <!-- Main Chart -->
+        <div class="chart-card">
+            <div class="chart-card-title">Projeção Anual vs. Acumulado</div>
+            <div class="chart-card-subtitle">Barras: meta anual · Linha: total acumulado · Linha vermelha tracejada: meta de 130.000</div>
+            <div class="chart-container">
+                <canvas id="mainChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="table-section">
+            <div class="table-title">📋 Detalhamento por Ano</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ano</th>
+                        <th>Meta Anual</th>
+                        <th>Acumulado</th>
+                        <th>% da Meta</th>
+                        <th>Restante</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+
+        <div class="footer">
+            Atualizado em Julho de 2026 · Crescimento progressivo de 10% ao ano
+        </div>
+    </div>
+
+    <script>
+        // Data
+        const META_TOTAL = 130000;
+        const BASE_ACUMULADA = 59315; // antes de 2026
+
+        const anos = [2026, 2027, 2028, 2029, 2030, 2031, 2032];
+        const metaAnual = [7700, 8470, 9317, 10249, 11274, 12401, 13641];
+        const acumulado = [67015, 75485, 84802, 95051, 106324, 118725, 132366];
+
+        // Labels including pre-2026
+        const labels = ['Até 2025', ...anos.map(String)];
+        const acumuladoFull = [BASE_ACUMULADA, ...acumulado];
+        const anualFull = [null, ...metaAnual];
+
+        // Animate progress bar
+        setTimeout(() => {
+            const pct = ((BASE_ACUMULADA / META_TOTAL) * 100).toFixed(1);
+            document.getElementById('progressBar').style.width = pct + '%';
+            document.getElementById('progressPercent').textContent = pct + '%';
+        }, 500);
+
+        // Main Chart
+        const ctx = document.getElementById('mainChart').getContext('2d');
+
+        // Gradient for bars
+        const barGradient = ctx.createLinearGradient(0, 0, 0, 400);
+        barGradient.addColorStop(0, 'rgba(59,130,246,0.9)');
+        barGradient.addColorStop(1, 'rgba(6,182,212,0.4)');
+
+        // Gradient for the accumulated line fill
+        const lineGradient = ctx.createLinearGradient(0, 0, 0, 400);
+        lineGradient.addColorStop(0, 'rgba(16,185,129,0.25)');
+        lineGradient.addColorStop(1, 'rgba(16,185,129,0.02)');
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Meta Anual',
+                        data: anualFull,
+                        backgroundColor: anualFull.map((_, i) => {
+                            if (i === 0) return 'transparent';
+                            return barGradient;
+                        }),
+                        borderColor: anualFull.map((_, i) => {
+                            if (i === 0) return 'transparent';
+                            return 'rgba(59,130,246,0.8)';
+                        }),
+                        borderWidth: 1,
+                        borderRadius: 6,
+                        order: 2,
+                        yAxisID: 'y1',
+                        barPercentage: 0.6,
+                    },
+                    {
+                        label: 'Acumulado',
+                        data: acumuladoFull,
+                        type: 'line',
+                        borderColor: '#10b981',
+                        backgroundColor: lineGradient,
+                        borderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 9,
+                        pointBackgroundColor: acumuladoFull.map(v => v >= META_TOTAL ? '#10b981' : '#06b6d4'),
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        fill: true,
+                        tension: 0.35,
+                        order: 1,
+                        yAxisID: 'y',
+                    }
+                ]
+            },
+            plugins: [ChartDataLabels],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            color: '#94a3b8',
+                            font: { family: 'Inter', size: 12, weight: '500' },
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            padding: 20,
+                            filter: function(item) {
+                                return item.text !== 'Meta 130.000';
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(17,24,39,0.95)',
+                        titleColor: '#f1f5f9',
+                        bodyColor: '#94a3b8',
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        borderWidth: 1,
+                        cornerRadius: 10,
+                        padding: 14,
+                        titleFont: { family: 'Inter', size: 14, weight: '700' },
+                        bodyFont: { family: 'Inter', size: 13 },
+                        callbacks: {
+                            label: function(context) {
+                                let val = context.parsed.y;
+                                if (val === null) return '';
+                                let formatted = val.toLocaleString('pt-BR');
+                                if (context.dataset.label === 'Acumulado') {
+                                    let pct = ((val / META_TOTAL) * 100).toFixed(1);
+                                    return ` ${context.dataset.label}: ${formatted} (${pct}%)`;
+                                }
+                                return ` ${context.dataset.label}: ${formatted}`;
+                            }
+                        }
+                    },
+                    annotation: {
+                        annotations: {
+                            goalLine: {
+                                type: 'line',
+                                yMin: META_TOTAL,
+                                yMax: META_TOTAL,
+                                yScaleID: 'y',
+                                borderColor: '#f43f5e',
+                                borderWidth: 2,
+                                borderDash: [8, 5],
+                                label: {
+                                    display: true,
+                                    content: '🎯 META: 130.000',
+                                    position: 'start',
+                                    backgroundColor: 'rgba(244,63,94,0.15)',
+                                    color: '#f43f5e',
+                                    font: { family: 'Inter', size: 12, weight: '700' },
+                                    padding: { top: 4, bottom: 4, left: 8, right: 8 },
+                                    borderRadius: 6,
+                                }
+                            },
+                            goalPoint: {
+                                type: 'point',
+                                xValue: '2032',
+                                yValue: 132366,
+                                yScaleID: 'y',
+                                backgroundColor: '#10b981',
+                                borderColor: '#fff',
+                                borderWidth: 3,
+                                radius: 10,
+                            },
+                            goalLabel: {
+                                type: 'label',
+                                xValue: '2032',
+                                yValue: 132366,
+                                yScaleID: 'y',
+                                content: ['✅ Meta atingida!', '132.366'],
+                                color: '#10b981',
+                                font: [
+                                    { family: 'Inter', size: 13, weight: '700' },
+                                    { family: 'Inter', size: 11, weight: '500' }
+                                ],
+                                backgroundColor: 'rgba(16,185,129,0.1)',
+                                borderColor: 'rgba(16,185,129,0.3)',
+                                borderWidth: 1,
+                                borderRadius: 8,
+                                padding: { top: 6, bottom: 6, left: 10, right: 10 },
+                                position: { x: 'center', y: 'start' },
+                                yAdjust: -35,
+                            }
+                        }
+                    },
+                    datalabels: {
+                        display: function(context) {
+                            return context.dataset.label === 'Acumulado';
+                        },
+                        color: function(context) {
+                            const val = context.dataset.data[context.dataIndex];
+                            return val >= META_TOTAL ? '#10b981' : '#94a3b8';
+                        },
+                        anchor: 'end',
+                        align: 'bottom',
+                        offset: 6,
+                        font: { family: 'Inter', size: 11, weight: '600' },
+                        formatter: function(value) {
+                            if (value === null) return '';
+                            return value.toLocaleString('pt-BR');
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255,255,255,0.04)',
+                        },
+                        ticks: {
+                            color: '#94a3b8',
+                            font: { family: 'Inter', size: 12, weight: '600' },
+                        }
+                    },
+                    y: {
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'ACUMULADO',
+                            color: '#64748b',
+                            font: { family: 'Inter', size: 11, weight: '600' },
+                        },
+                        min: 0,
+                        max: 150000,
+                        grid: {
+                            color: 'rgba(255,255,255,0.04)',
+                        },
+                        ticks: {
+                            color: '#64748b',
+                            font: { family: 'Inter', size: 11 },
+                            callback: function(value) {
+                                return (value / 1000).toFixed(0) + 'k';
+                            },
+                            stepSize: 25000,
+                        }
+                    },
+                    y1: {
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'META ANUAL',
+                            color: '#64748b',
+                            font: { family: 'Inter', size: 11, weight: '600' },
+                        },
+                        min: 0,
+                        max: 20000,
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        ticks: {
+                            color: '#64748b',
+                            font: { family: 'Inter', size: 11 },
+                            callback: function(value) {
+                                return (value / 1000).toFixed(0) + 'k';
+                            },
+                            stepSize: 5000,
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1500,
+                    easing: 'easeOutQuart',
+                }
+            }
+        });
+
+        // Populate table
+        const tableBody = document.getElementById('tableBody');
+
+        // Pre-2026 row
+        const preRow = document.createElement('tr');
+        preRow.innerHTML = `
+            <td>2016–2025</td>
+            <td>—</td>
+            <td>${BASE_ACUMULADA.toLocaleString('pt-BR')}</td>
+            <td>${((BASE_ACUMULADA / META_TOTAL) * 100).toFixed(1)}%</td>
+            <td>${(META_TOTAL - BASE_ACUMULADA).toLocaleString('pt-BR')}</td>
+            <td><span style="color: var(--accent-amber)">Em andamento</span></td>
+        `;
+        tableBody.appendChild(preRow);
+
+        anos.forEach((ano, i) => {
+            const row = document.createElement('tr');
+            const pct = ((acumulado[i] / META_TOTAL) * 100).toFixed(1);
+            const restante = META_TOTAL - acumulado[i];
+            const isGoal = acumulado[i] >= META_TOTAL;
+
+            if (isGoal) row.classList.add('goal-reached');
+
+            row.innerHTML = `
+                <td>${ano}</td>
+                <td>${metaAnual[i].toLocaleString('pt-BR')}</td>
+                <td>${acumulado[i].toLocaleString('pt-BR')}</td>
+                <td>${pct}%</td>
+                <td>${isGoal ? '—' : restante.toLocaleString('pt-BR')}</td>
+                <td>${isGoal 
+                    ? '<span class="badge-goal">✅ Meta Atingida</span>' 
+                    : '<span style="color: var(--accent-amber)">Em andamento</span>'
+                }</td>
+            `;
+            tableBody.appendChild(row);
+        });
+    </script>
+</body>
+</html>
