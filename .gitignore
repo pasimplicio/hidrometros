@@ -1,0 +1,6 @@
+# Dados brutos contêm matrículas e identificadores de hidrômetros.
+dados_hidrometros_slz.csv
+
+# Metadados locais do ambiente de desenvolvimento.
+.agents/
+
