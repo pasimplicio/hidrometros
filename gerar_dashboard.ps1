@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$CsvPath = (Join-Path $PSScriptRoot 'dados_hidrometros_slz.csv'),
     [string]$OutputPath = (Join-Path $PSScriptRoot 'index.html')
 )
@@ -16,7 +16,7 @@ if (-not (Test-Path -LiteralPath $CsvPath)) {
     throw "CSV não encontrado: $CsvPath"
 }
 
-$rows = Import-Csv -LiteralPath $CsvPath -Delimiter ';'
+$rows = Import-Csv -LiteralPath $CsvPath -Delimiter ';' -Encoding UTF8
 $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 $cube = @{}
 $neighborhoods = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
