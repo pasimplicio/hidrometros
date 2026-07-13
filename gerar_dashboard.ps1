@@ -1,6 +1,6 @@
-﻿param(
+param(
     [string]$CsvPath = (Join-Path $PSScriptRoot 'dados_hidrometros_slz.csv'),
-    [string]$OutputPath = (Join-Path $PSScriptRoot 'dashboard_hidrometros.html')
+    [string]$OutputPath = (Join-Path $PSScriptRoot 'index.html')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,7 +39,8 @@ foreach ($row in $rows) {
         $row.'DATA INSTALACAO',
         $row.'TIPO CONSUMO AGUA',
         $row.'TIPO CONSUMO ESGOTO',
-        $row.'SITUACAO AGUA'
+        $row.'SITUACAO AGUA',
+        $row.'EMPRESA CONTRATADA'
     ) -join [char]31
 
     if (-not $seen.Add($rawKey)) {
@@ -73,11 +74,12 @@ foreach ($row in $rows) {
     $bairro = Clean-Value $row.BAIRRO
     $situacao = Clean-Value $row.'SITUACAO AGUA'
     $consumo = Clean-Value $row.'TIPO CONSUMO AGUA'
+    $empresa = Clean-Value $row.'EMPRESA CONTRATADA'
     if ($consumo -eq '(Não informado)') { $missingConsumption++ }
     [void]$neighborhoods.Add($bairro)
     $includedCount++
 
-    $key = @($ano, $bairro, $situacao, $consumo) -join [char]30
+    $key = @($ano, $bairro, $empresa, $situacao, $consumo) -join [char]30
     if ($cube.ContainsKey($key)) {
         $cube[$key].n++
     }
@@ -85,6 +87,7 @@ foreach ($row in $rows) {
         $cube[$key] = [pscustomobject]@{
             y = $ano
             b = $bairro
+            e = $empresa
             s = $situacao
             c = $consumo
             n = 1
@@ -92,7 +95,7 @@ foreach ($row in $rows) {
     }
 }
 
-$cubeRows = @($cube.Values | Sort-Object y, b, s, c)
+$cubeRows = @($cube.Values | Sort-Object y, b, e, s, c)
 $payload = [ordered]@{
     generatedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm')
     source = [IO.Path]::GetFileName($CsvPath)
@@ -281,7 +284,7 @@ $html = @'
 
     <section class="card table-card">
       <div class="chart-head"><div><h2>Ranking completo de bairros</h2><p id="tableSummary">Todos os bairros do recorte</p></div><div class="table-tools"><input id="bairroSearch" type="search" placeholder="Pesquisar bairro..." aria-label="Pesquisar bairro"><button class="btn-primary" id="exportCsv">Exportar ranking CSV</button></div></div>
-      <div class="table-wrap"><table><thead><tr><th>#</th><th>Bairro</th><th>Instalações</th><th>Participação</th></tr></thead><tbody id="bairroTable"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Bairro</th><th>Empresa Cadastrada</th><th>Instalações</th><th>Participação</th></tr></thead><tbody id="bairroTable"></tbody></table></div>
     </section>
     <footer id="footer"></footer>
   </main>
@@ -323,7 +326,19 @@ $html = @'
     function filtered(){return BI.data.filter(d=>(!filters.year.value||d.y===filters.year.value)&&(!filters.bairro.value||d.b===filters.bairro.value)&&(!filters.situacao.value||d.s===filters.situacao.value)&&(!filters.consumo.value||d.c===filters.consumo.value));}
     function group(rows,field){const m=new Map();rows.forEach(d=>m.set(d[field],(m.get(d[field])||0)+d.n));return [...m].map(([label,value])=>({label,value}));}
     function total(rows){return rows.reduce((s,d)=>s+d.n,0)}
-    function render(){currentRows=filtered();const t=total(currentRows);bairroRanking=group(currentRows,'b').sort((a,b)=>b.value-a.value||a.label.localeCompare(b.label,'pt-BR'));
+    function render(){currentRows=filtered();const t=total(currentRows);
+      const bMap = new Map();
+      currentRows.forEach(d => {
+        if(!bMap.has(d.b)) bMap.set(d.b, {value: 0, emp: new Map()});
+        const o = bMap.get(d.b);
+        o.value += d.n;
+        if(d.e) o.emp.set(d.e, (o.emp.get(d.e)||0) + d.n);
+      });
+      bairroRanking = [...bMap].map(([label, o]) => {
+        let empresa = ''; let maxE = -1;
+        for(let [eName, eCount] of o.emp.entries()){ if(eCount > maxE){ maxE = eCount; empresa = eName; } }
+        return {label, value: o.value, empresa};
+      }).sort((a,b)=>b.value-a.value||a.label.localeCompare(b.label,'pt-BR'));
       const sit=group(currentRows,'s'),cons=group(currentRows,'c');const ligados=sit.filter(x=>x.label.toLocaleUpperCase('pt-BR')==='LIGADO').reduce((s,x)=>s+x.value,0);const reais=cons.filter(x=>x.label.toLocaleUpperCase('pt-BR')==='REAL').reduce((s,x)=>s+x.value,0);
       $('kTotal').textContent=nf.format(t);$('kBairros').textContent=nf.format(bairroRanking.length);$('kLigado').textContent=t?pf.format(ligados/t):'0%';$('kLigadoSub').textContent=`${nf.format(ligados)} ligações`;$('kReal').textContent=t?pf.format(reais/t):'0%';$('kRealSub').textContent=`${nf.format(reais)} instalações`;
       $('kTotalSub').textContent=t===BI.total?'instalações desde 2016':'no recorte selecionado';renderCharts();renderTable();
@@ -338,8 +353,8 @@ $html = @'
     function drawDonut(items){const th=T(),canvas=$('situationChart'),wrap=canvas.parentElement,w=Math.min(Math.max(wrap.clientWidth*.5,190),300),h=w,ctx=setupCanvas(canvas,w,h),t=items.reduce((s,x)=>s+x.value,0),cx=w/2,cy=h/2,r=w*.36,inner=r*.66;if(!t){ctx.fillStyle=th.muted;ctx.textAlign='center';ctx.fillText('Sem dados',cx,cy);$('situationLegend').innerHTML='';return}let a=-Math.PI/2;items.forEach((d,i)=>{const next=a+d.value/t*Math.PI*2;ctx.beginPath();ctx.arc(cx,cy,r,a,next);ctx.arc(cx,cy,inner,next,a,true);ctx.closePath();ctx.fillStyle=colors[i%colors.length];ctx.fill();a=next});ctx.fillStyle=th.text;ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='900 22px '+FONT;ctx.fillText(compact(t),cx,cy-6);ctx.fillStyle=th.muted;ctx.font='11px '+FONT;ctx.fillText('instalações',cx,cy+15);$('situationLegend').innerHTML=items.map((d,i)=>`<div class="legend-row"><i class="dot" style="background:${colors[i%colors.length]}"></i><span>${esc(d.label)} <small>(${pf.format(d.value/t)})</small></span><b>${nf.format(d.value)}</b></div>`).join('');}
     function compact(n){return Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(Math.round(n))}
     function shorten(s,n){return s.length>n?s.slice(0,n-1)+'…':s}
-    function renderTable(){const q=$('bairroSearch').value.trim().toLocaleUpperCase('pt-BR'),rows=bairroRanking.filter(x=>!q||x.label.toLocaleUpperCase('pt-BR').includes(q)),t=bairroRanking.reduce((s,x)=>s+x.value,0),max=bairroRanking[0]?.value||1;$('bairroTable').innerHTML=rows.map((d,i)=>`<tr><td>${i+1}</td><td>${esc(d.label)}</td><td>${nf.format(d.value)}</td><td><div class="share"><div class="mini-bar"><i style="width:${d.value/max*100}%"></i></div><b>${t?pf.format(d.value/t):'0,0%'}</b></div></td></tr>`).join('');$('tableSummary').textContent=`${nf.format(rows.length)} bairro(s) exibido(s) • ${nf.format(t)} instalações no recorte`;}
-    function exportRanking(){const t=bairroRanking.reduce((s,x)=>s+x.value,0);const lines=['Posição;Bairro;Instalações;Participação'];bairroRanking.forEach((d,i)=>lines.push(`${i+1};"${d.label.replaceAll('"','""')}";${d.value};${t?(d.value/t*100).toFixed(2).replace('.',','):0}%`));const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='ranking_bairros_hidrometros.csv';a.click();URL.revokeObjectURL(a.href);}
+    function renderTable(){const q=$('bairroSearch').value.trim().toLocaleUpperCase('pt-BR'),rows=bairroRanking.filter(x=>!q||x.label.toLocaleUpperCase('pt-BR').includes(q)),t=bairroRanking.reduce((s,x)=>s+x.value,0),max=bairroRanking[0]?.value||1;$('bairroTable').innerHTML=rows.map((d,i)=>`<tr><td>${i+1}</td><td>${esc(d.label)}</td><td style="font-size:0.7rem; color:var(--muted)">${esc(d.empresa)}</td><td>${nf.format(d.value)}</td><td><div class="share"><div class="mini-bar"><i style="width:${d.value/max*100}%"></i></div><b>${t?pf.format(d.value/t):'0,0%'}</b></div></td></tr>`).join('');$('tableSummary').textContent=`${nf.format(rows.length)} bairro(s) exibido(s) • ${nf.format(t)} instalações no recorte`;}
+    function exportRanking(){const t=bairroRanking.reduce((s,x)=>s+x.value,0);const lines=['Posição;Bairro;Empresa Cadastrada;Instalações;Participação'];bairroRanking.forEach((d,i)=>lines.push(`${i+1};"${d.label.replaceAll('"','""')}";"${(d.empresa||'').replaceAll('"','""')}";${d.value};${t?(d.value/t*100).toFixed(2).replace('.',','):0}%`));const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='ranking_bairros_hidrometros.csv';a.click();URL.revokeObjectURL(a.href);}
     init();
   </script>
 </body>
