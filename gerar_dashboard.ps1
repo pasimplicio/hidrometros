@@ -210,9 +210,6 @@ $html = @'
     .dot{width:10px;height:10px;border-radius:999px}
     .legend-row b{font-variant-numeric:tabular-nums;font-weight:800}
     .legend-row small{color:var(--muted)}
-    .legend-inline{display:flex;flex-wrap:wrap;gap:.55rem 1.4rem;margin-top:1.1rem}
-    .legend-inline .legend-row{display:flex;gap:.5rem;align-items:center;border-bottom:0;padding:0}
-    .legend-inline .legend-row span{font-weight:700}
 
     .table-card{padding:1.35rem 1.4rem}
     .table-tools{display:flex;gap:10px;align-items:end}.table-tools input{width:min(300px,42vw);height:40px;border-radius:11px}
@@ -228,6 +225,24 @@ $html = @'
     .share b{font-variant-numeric:tabular-nums;font-size:.72rem;font-weight:800;color:var(--muted);min-width:3.4rem;text-align:right}
     .mini-bar{height:7px;background:var(--track);border-radius:999px;overflow:hidden;min-width:100px}
     .mini-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),#2dd4bf);border-radius:999px}
+
+    /* Matriz empresa x ano: 1a coluna fixa, numeros alinhados a direita */
+    .matrix-wrap{max-height:none;margin-top:1.2rem}
+    table.matrix{min-width:900px}
+    table.matrix th,table.matrix td{padding:.65rem .85rem;white-space:nowrap}
+    table.matrix thead th{background:var(--table-head)}
+    table.matrix th.emp,table.matrix td.emp{position:sticky;left:0;z-index:2;background:var(--surface);text-align:left;white-space:normal;min-width:230px}
+    table.matrix thead th.emp{background:var(--table-head);z-index:3}
+    table.matrix td.emp{font-weight:700;font-size:.74rem}
+    table.matrix td.emp .dot{display:inline-block;margin-right:.5rem;vertical-align:middle}
+    table.matrix th.num,table.matrix td.num{text-align:right;font-variant-numeric:tabular-nums}
+    table.matrix td.num{color:var(--muted)}
+    table.matrix td.num.on{color:var(--text);font-weight:700}
+    table.matrix .per{color:var(--muted);font-size:.68rem;font-weight:700}
+    table.matrix .tot{font-weight:800;color:var(--text);border-left:1px solid var(--border)}
+    table.matrix th.tot{color:var(--muted)}
+    table.matrix tfoot td{background:var(--table-head);font-weight:800;color:var(--text);border-top:1px solid var(--border);border-bottom:0}
+    table.matrix tfoot td.emp{background:var(--table-head)}
 
     footer{text-align:center;color:var(--footer);font-size:.68rem;margin-top:1.4rem}
     @media(max-width:950px){.filters{grid-template-columns:repeat(2,1fr)}.grid,.grid.equal{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
@@ -289,7 +304,7 @@ $html = @'
     <section class="card chart-card" style="margin-bottom:14px">
       <div class="chart-head"><div><h2>Instalações por ano e empresa contratada</h2><p>Sucessão dos contratos: cada empresa ocupa um período distinto. "FORA DOS CONTRATOS" reúne o que não está atribuído a nenhuma contratada.</p></div></div>
       <div class="canvas-scroll" id="empresaScroll"><canvas id="empresaChart"></canvas></div>
-      <div class="legend legend-inline" id="empresaLegend"></div>
+      <div class="table-wrap matrix-wrap"><table class="matrix"><thead id="empresaMatrixHead"></thead><tbody id="empresaMatrixBody"></tbody><tfoot id="empresaMatrixFoot"></tfoot></table></div>
     </section>
 
     <section class="card table-card">
@@ -362,16 +377,37 @@ $html = @'
       }).sort((a,b)=>b.value-a.value||a.label.localeCompare(b.label,'pt-BR'));
       const sit=group(currentRows,'s'),cons=group(currentRows,'c');const ligados=sit.filter(x=>x.label.toLocaleUpperCase('pt-BR')==='LIGADO').reduce((s,x)=>s+x.value,0);const reais=cons.filter(x=>x.label.toLocaleUpperCase('pt-BR')==='REAL').reduce((s,x)=>s+x.value,0);
       $('kTotal').textContent=nf.format(t);$('kBairros').textContent=nf.format(bairroRanking.length);$('kLigado').textContent=t?pf.format(ligados/t):'0%';$('kLigadoSub').textContent=`${nf.format(ligados)} ligações`;$('kReal').textContent=t?pf.format(reais/t):'0%';$('kRealSub').textContent=`${nf.format(reais)} instalações`;
-      $('kTotalSub').textContent=t===BI.total?'instalações desde 2016':'no recorte selecionado';renderCharts();renderTable();
+      $('kTotalSub').textContent=t===BI.total?'instalações desde 2016':'no recorte selecionado';renderCharts();renderTable();renderEmpresaMatrix(currentRows);
     }
     function renderCharts(){drawYears(group(currentRows,'y'));drawDonut(group(currentRows,'s').sort((a,b)=>b.value-a.value));drawBairros(bairroRanking);drawConsumption(group(currentRows,'c').sort((a,b)=>b.value-a.value));drawEmpresaAno(currentRows);}
-    function drawEmpresaAno(rows){
-      const wrap=$('empresaScroll'),legend=$('empresaLegend');
+    // Matriz empresa x ano, compartilhada pelo grafico e pela tabela.
+    function empresaMatrix(rows){
       const anos=[...new Set(rows.map(d=>d.y))].filter(y=>/^\d{4}$/.test(y)).sort((a,b)=>+a-+b);
       const ativas=empresaOrder.filter(e=>rows.some(d=>d.e===e));
-      if(!anos.length||!ativas.length){legend.innerHTML='';return noData(wrap,'empresaChart');}
       const cel=new Map();rows.forEach(d=>{if(!/^\d{4}$/.test(d.y))return;const k=d.y+'|'+d.e;cel.set(k,(cel.get(k)||0)+d.n);});
-      const totAno=a=>ativas.reduce((s,e)=>s+(cel.get(a+'|'+e)||0),0);
+      const val=(a,e)=>cel.get(a+'|'+e)||0;
+      const totAno=a=>ativas.reduce((s,e)=>s+val(a,e),0);
+      const totEmp=e=>anos.reduce((s,a)=>s+val(a,e),0);
+      const geral=anos.reduce((s,a)=>s+totAno(a),0);
+      return {anos,ativas,val,totAno,totEmp,geral};
+    }
+    function renderEmpresaMatrix(rows){
+      const {anos,ativas,val,totAno,totEmp,geral}=empresaMatrix(rows);
+      const head=$('empresaMatrixHead'),body=$('empresaMatrixBody'),foot=$('empresaMatrixFoot');
+      if(!anos.length||!ativas.length){head.innerHTML='';body.innerHTML='<tr><td class="emp">Nenhum dado para os filtros selecionados</td></tr>';foot.innerHTML='';return;}
+      head.innerHTML=`<tr><th class="emp">Empresa contratada</th><th class="num">Período</th>${anos.map(a=>`<th class="num">${a}</th>`).join('')}<th class="num tot">Total</th><th class="num tot">Part.</th></tr>`;
+      body.innerHTML=ativas.map(e=>{
+        const ys=anos.filter(a=>val(a,e)),tot=totEmp(e);
+        const per=ys.length?(ys[0]===ys[ys.length-1]?ys[0]:ys[0]+'–'+ys[ys.length-1]):'—';
+        const cels=anos.map(a=>{const v=val(a,e);return `<td class="num${v?' on':''}">${v?nf.format(v):'—'}</td>`;}).join('');
+        return `<tr><td class="emp"><i class="dot" style="background:${empresaColor(e)}"></i>${esc(e)}</td><td class="num per">${per}</td>${cels}<td class="num tot">${nf.format(tot)}</td><td class="num tot">${geral?pf.format(tot/geral):'0,0%'}</td></tr>`;
+      }).join('');
+      foot.innerHTML=`<tr><td class="emp">Total do ano</td><td class="num"></td>${anos.map(a=>`<td class="num">${nf.format(totAno(a))}</td>`).join('')}<td class="num tot">${nf.format(geral)}</td><td class="num tot">100,0%</td></tr>`;
+    }
+    function drawEmpresaAno(rows){
+      const wrap=$('empresaScroll');
+      const {anos,ativas,val,totAno}=empresaMatrix(rows);
+      if(!anos.length||!ativas.length)return noData(wrap,'empresaChart');
       const th=T(),max=Math.max(...anos.map(totAno),1);
       const w=Math.max(wrap.clientWidth||600,anos.length*78+80),h=380;
       const ctx=setupCanvas($('empresaChart'),w,h),left=62,right=18,top=34,bottom=54;
@@ -383,7 +419,7 @@ $html = @'
         const tot=totAno(a);if(!tot)return;
         const x=left+i*step+(step-bw)/2;let acc=0;
         ativas.forEach(e=>{
-          const v=cel.get(a+'|'+e)||0;if(!v)return;
+          const v=val(a,e);if(!v)return;
           const segH=v/max*plotH,y=top+plotH-(acc+v)/max*plotH;
           ctx.fillStyle=empresaColor(e);ctx.fillRect(x,y,bw,segH);acc+=v;
         });
@@ -391,9 +427,6 @@ $html = @'
         ctx.fillText(nf.format(tot),x+bw/2,Math.max(14,top+plotH-tot/max*plotH-5));
         ctx.font='12px '+FONT;ctx.fillStyle=th.muted;ctx.textBaseline='top';ctx.fillText(a,x+bw/2,top+plotH+10);
       });
-      const totGeral=rows.reduce((s,d)=>s+d.n,0);
-      legend.innerHTML=ativas.map(e=>{const v=rows.filter(d=>d.e===e).reduce((s,d)=>s+d.n,0);const ys=anos.filter(a=>cel.get(a+'|'+e));const per=ys.length?(ys[0]===ys[ys.length-1]?ys[0]:ys[0]+'–'+ys[ys.length-1]):'';
-        return `<div class="legend-row"><i class="dot" style="background:${empresaColor(e)}"></i><span>${esc(e)}</span><small>${per} · ${nf.format(v)} (${totGeral?pf.format(v/totGeral):'0,0%'})</small></div>`;}).join('');
     }
     function setupCanvas(canvas,w,h){const dpr=Math.min(window.devicePixelRatio||1,2);canvas.style.width=w+'px';canvas.style.height=h+'px';canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.font='12px '+FONT;return ctx;}
     function roundedRect(ctx,x,y,w,h,r){r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
