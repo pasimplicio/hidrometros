@@ -526,12 +526,20 @@ $html = @'
       ctx.save();ctx.setLineDash([7,5]);ctx.strokeStyle='#2dd4bf';ctx.lineWidth=2.5;ctx.beginPath();
       pp.forEach((pt,i)=>i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y));ctx.stroke();ctx.restore();
       ctx.fillStyle='#2dd4bf';pp.slice(1).forEach(pt=>{ctx.beginPath();ctx.arc(pt.x,pt.y,3.5,0,Math.PI*2);ctx.fill();});
+      /* Rotulos do acumulado. Em 2026 as duas series quase se tocam (realizado
+         88.925 x projetado 91.649): o realizado vai ABAIXO do ponto e a projecao
+         ACIMA, senao os rotulos se sobrepoem. */
+      ctx.font='800 10px '+FONT;ctx.textAlign='center';
+      ctx.fillStyle=th.brand;ctx.textBaseline='top';
+      p.realized.forEach(r=>ctx.fillText(nf.format(r.acc),X(r.y),Y(r.acc)+8));
+      ctx.fillStyle='#2dd4bf';ctx.textBaseline='bottom';
+      p.linhas.forEach(l=>ctx.fillText(nf.format(l.accProj),X(l.y),Y(l.accProj)-9));
       // marcador do cruzamento
       if(p.cruza){
         const cx=X(p.cruza.y),cy=Y(p.cruza.accProj);
         ctx.strokeStyle='#34d399';ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,7,0,Math.PI*2);ctx.stroke();
         ctx.fillStyle='#34d399';ctx.font='900 12px '+FONT;ctx.textAlign='center';ctx.textBaseline='bottom';
-        ctx.fillText(p.cruza.y,cx,cy-12);
+        ctx.fillText(p.cruza.y,cx,cy-24);   // acima do rotulo do valor
       }
       // eixo x
       ctx.fillStyle=th.muted;ctx.font='12px '+FONT;ctx.textAlign='center';ctx.textBaseline='top';
