@@ -16,37 +16,28 @@ if (-not (Test-Path -LiteralPath $CsvPath)) {
     throw "CSV não encontrado: $CsvPath"
 }
 
+# --- Parametros da meta do acordo -------------------------------------------
+$metaTotal = 130000        # hidrometros a instalar desde 2016
+$metaAnoBase = 2026        # primeiro ano com meta pactuada
+$metaAnoBaseQtd = 7700     # meta do ano base
+$metaCrescimento = 0.10    # crescimento anual da meta
+
 $rows = Import-Csv -LiteralPath $CsvPath -Delimiter ';' -Encoding UTF8
-$seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-$cube = @{}
-$neighborhoods = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-$duplicateRows = 0
-$missingConsumption = 0
-$invalidDates = 0
-$futureDates = 0
-$suspiciousOldDates = 0
 $today = [datetime]::Today
 $periodStart = [datetime]'2016-01-01'
-$includedCount = 0
-$excludedBeforePeriod = 0
+
+# --- Passe 1: reduzir os eventos a HIDROMETROS DISTINTOS ---------------------
+# A base traz um registro por evento de instalacao, entao o mesmo hidrometro
+# (NR HID.) reaparece a cada reinstalacao. A meta conta hidrometro fisico, nao
+# evento: cada NR HID. entra uma vez so, no ano da PRIMEIRA instalacao.
+$meters = @{}
+$invalidDates = 0
+$missingSerial = 0
+$reinstalls = 0
 
 foreach ($row in $rows) {
-    $rawKey = @(
-        $row.MATRICULA,
-        $row.LOCALIDADE,
-        $row.BAIRRO,
-        $row.'NR HID.',
-        $row.'DATA INSTALACAO',
-        $row.'TIPO CONSUMO AGUA',
-        $row.'TIPO CONSUMO ESGOTO',
-        $row.'SITUACAO AGUA',
-        $row.'EMPRESA CONTRATADA'
-    ) -join [char]31
-
-    if (-not $seen.Add($rawKey)) {
-        $duplicateRows++
-        continue
-    }
+    $serial = Clean-Value $row.'NR HID.'
+    if ($serial -eq '(Não informado)') { $missingSerial++; continue }
 
     $dateText = Clean-Value $row.'DATA INSTALACAO'
     $parsedDate = [datetime]::MinValue
@@ -60,58 +51,96 @@ foreach ($row in $rows) {
         $invalidDates++
         continue
     }
-    if ($parsedDate.Date -lt $periodStart) {
-        $excludedBeforePeriod++
-        if ($parsedDate.Year -lt 1980) { $suspiciousOldDates++ }
-        continue
-    }
-    if ($parsedDate.Date -gt $today) {
-        $futureDates++
-        continue
+
+    if ($meters.ContainsKey($serial)) {
+        $reinstalls++
+        # so troca se esta instalacao for anterior a que ja temos
+        if ($parsedDate.Date -ge $meters[$serial].Dt) { continue }
     }
 
-    $ano = [string]$parsedDate.Year
-    $bairro = Clean-Value $row.BAIRRO
-    $situacao = Clean-Value $row.'SITUACAO AGUA'
-    $consumo = Clean-Value $row.'TIPO CONSUMO AGUA'
-    $empresa = Clean-Value $row.'EMPRESA CONTRATADA'
-    if ($consumo -eq '(Não informado)') { $missingConsumption++ }
-    [void]$neighborhoods.Add($bairro)
+    $meters[$serial] = [pscustomobject]@{
+        Dt      = $parsedDate.Date
+        Bairro  = Clean-Value $row.BAIRRO
+        Empresa = Clean-Value $row.'EMPRESA CONTRATADA'
+        Situacao = Clean-Value $row.'SITUACAO AGUA'
+        Consumo = Clean-Value $row.'TIPO CONSUMO AGUA'
+        Status  = Clean-Value $row.'STATUS HIDROMETRO'
+    }
+}
+
+# --- Passe 2: montar o cubo com os hidrometros do periodo -------------------
+$cube = @{}
+$neighborhoods = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$missingConsumption = 0
+$futureDates = 0
+$includedCount = 0
+$excludedBeforePeriod = 0
+$activeCount = 0
+$perYear = @{}
+
+foreach ($m in $meters.Values) {
+    if ($m.Dt -lt $periodStart) { $excludedBeforePeriod++; continue }
+    if ($m.Dt -gt $today) { $futureDates++; continue }
+
+    $ano = [string]$m.Dt.Year
+    if ($m.Consumo -eq '(Não informado)') { $missingConsumption++ }
+    if ($m.Status -eq 'ATIVO') { $activeCount++ }
+    [void]$neighborhoods.Add($m.Bairro)
     $includedCount++
 
-    $key = @($ano, $bairro, $empresa, $situacao, $consumo) -join [char]30
+    if (-not $perYear.ContainsKey($ano)) { $perYear[$ano] = 0 }
+    $perYear[$ano]++
+
+    $key = @($ano, $m.Bairro, $m.Empresa, $m.Situacao, $m.Consumo, $m.Status) -join [char]30
     if ($cube.ContainsKey($key)) {
         $cube[$key].n++
     }
     else {
         $cube[$key] = [pscustomobject]@{
             y = $ano
-            b = $bairro
-            e = $empresa
-            s = $situacao
-            c = $consumo
+            b = $m.Bairro
+            e = $m.Empresa
+            s = $m.Situacao
+            c = $m.Consumo
+            t = $m.Status
             n = 1
         }
     }
 }
 
-$cubeRows = @($cube.Values | Sort-Object y, b, e, s, c)
+# Serie realizada acumulada, ano a ano
+$realized = @()
+$acc = 0
+foreach ($ano in ($perYear.Keys | Sort-Object { [int]$_ })) {
+    $acc += $perYear[$ano]
+    $realized += [pscustomobject]@{ y = [int]$ano; n = $perYear[$ano]; acc = $acc }
+}
+
+$cubeRows = @($cube.Values | Sort-Object y, b, e, s, c, t)
 $payload = [ordered]@{
     generatedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm')
     source = [IO.Path]::GetFileName($CsvPath)
     totalRaw = $rows.Count
-    totalUnique = $seen.Count
+    totalMeters = $meters.Count
+    reinstalls = $reinstalls
     total = $includedCount
-    duplicates = $duplicateRows
+    active = $activeCount
     neighborhoods = $neighborhoods.Count
     missingConsumption = $missingConsumption
+    missingSerial = $missingSerial
     invalidDates = $invalidDates
     futureDates = $futureDates
-    suspiciousOldDates = $suspiciousOldDates
     excludedBeforePeriod = $excludedBeforePeriod
     periodStart = $periodStart.ToString('yyyy-MM-dd')
     periodEnd = $today.ToString('yyyy-MM-dd')
     currentYear = $today.Year
+    meta = [ordered]@{
+        total = $metaTotal
+        baseYear = $metaAnoBase
+        baseQty = $metaAnoBaseQtd
+        growth = $metaCrescimento
+    }
+    realized = $realized
     data = $cubeRows
 }
 
@@ -226,6 +255,24 @@ $html = @'
     .mini-bar{height:7px;background:var(--track);border-radius:999px;overflow:hidden;min-width:100px}
     .mini-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),#2dd4bf);border-radius:999px}
 
+    /* Meta 130 mil */
+    .meta-verdict{padding:.5rem .9rem;border-radius:999px;font-size:.72rem;font-weight:800;white-space:nowrap;border:1px solid}
+    .meta-verdict.ok{color:var(--success);background:rgba(52,211,153,.09);border-color:rgba(52,211,153,.28)}
+    .meta-verdict.warn{color:var(--warning);background:rgba(251,191,36,.09);border-color:rgba(251,191,36,.28)}
+    .meta-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:1.2rem}
+    .meta-stat{background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:.85rem 1rem}
+    .meta-stat .n{font-size:.64rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:800}
+    .meta-stat .v{font-size:1.45rem;font-weight:900;margin-top:.25rem;letter-spacing:-.02em}
+    .meta-stat .s{font-size:.7rem;color:var(--muted);margin-top:.2rem}
+    .meta-bar{position:relative;height:12px;border-radius:999px;background:var(--track);overflow:hidden;margin-bottom:1.6rem}
+    .meta-bar-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--brand),#2dd4bf);transition:width .4s ease}
+    .meta-note{font-size:.7rem;color:var(--muted);margin-top:1rem;line-height:1.6}
+    table.matrix td.ano{font-weight:800}
+    table.matrix tr.futuro td{color:var(--muted)}
+    table.matrix tr.cruza td{background:rgba(52,211,153,.08)}
+    table.matrix tr.cruza td.ano{color:var(--success)}
+    @media(max-width:950px){.meta-stats{grid-template-columns:repeat(2,1fr)}}
+
     /* Matriz empresa x ano: 1a coluna fixa, numeros alinhados a direita */
     .matrix-wrap{max-height:none;margin-top:1.2rem}
     table.matrix{min-width:900px}
@@ -271,13 +318,25 @@ $html = @'
     </section>
 
     <section class="kpis">
-      <article class="card kpi" style="--accent-color:var(--brand)"><div class="name">Instalações</div><div class="value" id="kTotal">0</div><div class="sub" id="kTotalSub">registros sem duplicidade exata</div></article>
+      <article class="card kpi" style="--accent-color:var(--brand)"><div class="name">Hidrômetros instalados</div><div class="value" id="kTotal">0</div><div class="sub" id="kTotalSub">números de hidrômetro distintos</div></article>
       <article class="card kpi" style="--accent-color:var(--success)"><div class="name">Bairros</div><div class="value" id="kBairros">0</div><div class="sub">com instalação no recorte</div></article>
       <article class="card kpi" style="--accent-color:var(--warning)"><div class="name">Água ligada</div><div class="value" id="kLigado">0%</div><div class="sub" id="kLigadoSub">0 ligações</div></article>
       <article class="card kpi" style="--accent-color:var(--violet)"><div class="name">Consumo real</div><div class="value" id="kReal">0%</div><div class="sub" id="kRealSub">0 instalações</div></article>
     </section>
 
     <aside class="card quality"><div>⚠️</div><div><strong>Leitura e qualidade dos dados</strong><p id="qualityText"></p></div></aside>
+
+    <section class="card chart-card meta-card" style="margin-bottom:14px">
+      <div class="chart-head">
+        <div><h2>Acompanhamento da meta de 130 mil hidrômetros</h2><p id="metaSub">Acumulado desde 2016 e projeção pela meta pactuada</p></div>
+        <div class="meta-verdict" id="metaVerdict"></div>
+      </div>
+      <div class="meta-stats" id="metaStats"></div>
+      <div class="meta-bar"><div class="meta-bar-fill" id="metaBarFill"></div><div class="meta-bar-mark" id="metaBarMark"></div></div>
+      <div class="canvas-scroll" id="metaScroll"><canvas id="metaChart"></canvas></div>
+      <div class="table-wrap matrix-wrap"><table class="matrix"><thead id="metaHead"></thead><tbody id="metaBody"></tbody></table></div>
+      <p class="meta-note">A meta não é afetada pelos filtros do topo: ela mede o total pactuado no acordo, sempre sobre todos os hidrômetros distintos instalados desde 2016.</p>
+    </section>
 
     <section class="grid">
       <article class="card chart-card">
@@ -353,8 +412,9 @@ $html = @'
       window.addEventListener('resize',debounce(renderCharts,140));
       const startDate=new Date(BI.periodStart+'T00:00:00').toLocaleDateString('pt-BR');
       const endDate=new Date(BI.periodEnd+'T00:00:00').toLocaleDateString('pt-BR');
-      $('qualityText').textContent=`Período de instalações: ${startDate} a ${endDate}. O parque de hidrômetro possui ${nf.format(BI.totalRaw)} registros; ${nf.format(BI.excludedBeforePeriod)} registros anteriores a 2016.`;
+      $('qualityText').textContent=`A base traz ${nf.format(BI.totalRaw)} eventos de instalação, que correspondem a ${nf.format(BI.totalMeters)} hidrômetros distintos (${nf.format(BI.reinstalls)} reinstalações do mesmo hidrômetro contam uma vez só, no ano da primeira instalação). Destes, ${nf.format(BI.excludedBeforePeriod)} foram instalados antes de 2016 e ficam fora do recorte, restando ${nf.format(BI.total)} entre ${startDate} e ${endDate}. Números iguais de hidrômetro são o critério de contagem — não eventos, não imóveis.`;
       $('footer').textContent=`Fonte: ${BI.source} • Período: ${startDate} a ${endDate} • BI gerado em ${BI.generatedAt} • Dados processados localmente.`;
+      renderMeta();
       render();
     }
     function debounce(fn,ms){let t;return()=>{clearTimeout(t);t=setTimeout(fn,ms)}}
@@ -379,7 +439,105 @@ $html = @'
       $('kTotal').textContent=nf.format(t);$('kBairros').textContent=nf.format(bairroRanking.length);$('kLigado').textContent=t?pf.format(ligados/t):'0%';$('kLigadoSub').textContent=`${nf.format(ligados)} ligações`;$('kReal').textContent=t?pf.format(reais/t):'0%';$('kRealSub').textContent=`${nf.format(reais)} instalações`;
       $('kTotalSub').textContent=t===BI.total?'instalações desde 2016':'no recorte selecionado';renderCharts();renderTable();renderEmpresaMatrix(currentRows);
     }
-    function renderCharts(){drawYears(group(currentRows,'y'));drawDonut(group(currentRows,'s').sort((a,b)=>b.value-a.value));drawBairros(bairroRanking);drawConsumption(group(currentRows,'c').sort((a,b)=>b.value-a.value));drawEmpresaAno(currentRows);}
+    function renderCharts(){drawYears(group(currentRows,'y'));drawDonut(group(currentRows,'s').sort((a,b)=>b.value-a.value));drawBairros(bairroRanking);drawConsumption(group(currentRows,'c').sort((a,b)=>b.value-a.value));drawEmpresaAno(currentRows);drawMeta(metaPlano());}
+    /* ---------------------------------------------------------------------
+       META DE 130 MIL HIDROMETROS
+       Nao depende dos filtros: mede o pactuado no acordo, sempre sobre todos
+       os hidrometros distintos instalados desde 2016.
+       --------------------------------------------------------------------- */
+    function metaPlano(){
+      const M=BI.meta,realized=BI.realized;
+      const accAte=y=>{const r=realized.filter(x=>x.y<=y);return r.length?r[r.length-1].acc:0;};
+      const base=accAte(M.baseYear-1);            // acumulado ao fim do ano anterior a meta
+      const linhas=[];
+      let acc=base,ano=M.baseYear,k=0;
+      // projeta ate cruzar a meta (teto de seguranca para nao girar infinito)
+      while(acc<M.total&&k<40){
+        const alvo=Math.round(M.baseQty*Math.pow(1+M.growth,k));
+        acc+=alvo;
+        linhas.push({y:ano,alvo,accProj:acc});
+        ano++;k++;
+      }
+      const cruza=linhas.find(l=>l.accProj>=M.total);
+      const feito=accAte(BI.currentYear);          // realizado ate hoje
+      const noAno=(realized.find(x=>x.y===BI.currentYear)||{n:0}).n;
+      const alvoAno=(linhas.find(l=>l.y===BI.currentYear)||{alvo:0}).alvo;
+      return {M,realized,base,linhas,cruza,feito,noAno,alvoAno,falta:Math.max(0,M.total-feito)};
+    }
+    function renderMeta(){
+      const p=metaPlano(),M=p.M,pct=p.feito/M.total;
+      $('metaVerdict').className='meta-verdict '+(p.cruza?'ok':'warn');
+      $('metaVerdict').textContent=p.cruza?`Meta alcançada em ${p.cruza.y}`:'Meta não alcançada no horizonte projetado';
+      $('metaSub').textContent=`Acumulado desde 2016 e projeção pela meta de ${nf.format(M.baseQty)} em ${M.baseYear}, crescendo ${pf.format(M.growth)} ao ano`;
+      $('metaStats').innerHTML=`
+        <div class="meta-stat"><div class="n">Realizado desde 2016</div><div class="v">${nf.format(p.feito)}</div><div class="s">${pf.format(pct)} da meta de ${compact(M.total)}</div></div>
+        <div class="meta-stat"><div class="n">Falta para os 130 mil</div><div class="v">${nf.format(p.falta)}</div><div class="s">${pf.format(1-pct)} restantes</div></div>
+        <div class="meta-stat"><div class="n">Meta de ${BI.currentYear}</div><div class="v">${nf.format(p.noAno)}<span style="font-size:.9rem;color:var(--muted);font-weight:700"> / ${nf.format(p.alvoAno)}</span></div><div class="s">${p.alvoAno?pf.format(p.noAno/p.alvoAno):'—'} da meta do ano</div></div>
+        <div class="meta-stat"><div class="n">Previsão de alcance</div><div class="v">${p.cruza?p.cruza.y:'—'}</div><div class="s">${p.cruza?'mantendo o ritmo pactuado':'fora do horizonte'}</div></div>`;
+      $('metaBarFill').style.width=Math.min(100,pct*100)+'%';
+      // tabela
+      const anos=[...p.realized.map(r=>r.y),...p.linhas.map(l=>l.y)].filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a-b);
+      $('metaHead').innerHTML='<tr><th class="emp">Ano</th><th class="num">Instalado no ano</th><th class="num">Acumulado realizado</th><th class="num">Meta do ano</th><th class="num tot">Acumulado projetado</th></tr>';
+      $('metaBody').innerHTML=anos.map(y=>{
+        const r=p.realized.find(x=>x.y===y),l=p.linhas.find(x=>x.y===y);
+        const futuro=y>BI.currentYear,cruza=p.cruza&&y===p.cruza.y;
+        const cls=[futuro?'futuro':'',cruza?'cruza':''].filter(Boolean).join(' ');
+        return `<tr class="${cls}"><td class="emp ano">${y}${y===BI.currentYear?' <small style="color:var(--muted);font-weight:700">(em curso)</small>':''}</td>`+
+          `<td class="num${r?' on':''}">${r?nf.format(r.n):'—'}</td>`+
+          `<td class="num${r?' on':''}">${r?nf.format(r.acc):'—'}</td>`+
+          `<td class="num${l?' on':''}">${l?nf.format(l.alvo):'—'}</td>`+
+          `<td class="num tot">${l?nf.format(l.accProj):'—'}</td></tr>`;
+      }).join('');
+      drawMeta(p);
+    }
+    function drawMeta(p){
+      const wrap=$('metaScroll'),M=p.M,th=T();
+      const anos=[...p.realized.map(r=>r.y),...p.linhas.map(l=>l.y)].filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a-b);
+      if(!anos.length)return noData(wrap,'metaChart');
+      const teto=Math.max(M.total,...p.linhas.map(l=>l.accProj),...p.realized.map(r=>r.acc))*1.08;
+      const w=Math.max(wrap.clientWidth||700,anos.length*66+90),h=360;
+      const ctx=setupCanvas($('metaChart'),w,h),left=64,right=22,top=26,bottom=48;
+      const plotW=w-left-right,plotH=h-top-bottom;
+      const X=y=>left+(anos.indexOf(y))*(plotW/Math.max(1,anos.length-1));
+      const Y=v=>top+plotH-(v/teto)*plotH;
+      // grade
+      ctx.strokeStyle=th.grid;ctx.fillStyle=th.muted;ctx.textAlign='right';ctx.textBaseline='middle';ctx.font='12px '+FONT;
+      for(let i=0;i<=4;i++){const y=top+plotH*i/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillText(compact(teto*(1-i/4)),left-8,y);}
+      // linha da meta 130k
+      const ym=Y(M.total);
+      ctx.save();ctx.setLineDash([6,5]);ctx.strokeStyle='#fb7185';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(left,ym);ctx.lineTo(w-right,ym);ctx.stroke();ctx.restore();
+      ctx.fillStyle='#fb7185';ctx.font='800 11px '+FONT;ctx.textAlign='left';ctx.textBaseline='bottom';
+      ctx.fillText('META '+compact(M.total),left+4,ym-5);
+      // area + linha do realizado
+      const rp=p.realized.map(r=>({x:X(r.y),y:Y(r.acc)}));
+      if(rp.length){
+        const g=ctx.createLinearGradient(0,top,0,top+plotH);
+        g.addColorStop(0,'rgba(14,165,233,.30)');g.addColorStop(1,'rgba(14,165,233,0)');
+        ctx.fillStyle=g;ctx.beginPath();ctx.moveTo(rp[0].x,top+plotH);
+        rp.forEach(pt=>ctx.lineTo(pt.x,pt.y));
+        ctx.lineTo(rp[rp.length-1].x,top+plotH);ctx.closePath();ctx.fill();
+        ctx.strokeStyle=th.brand;ctx.lineWidth=2.5;ctx.beginPath();
+        rp.forEach((pt,i)=>i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y));ctx.stroke();
+        ctx.fillStyle=th.brand;rp.forEach(pt=>{ctx.beginPath();ctx.arc(pt.x,pt.y,3.5,0,Math.PI*2);ctx.fill();});
+      }
+      // linha projetada (tracejada), partindo do ultimo realizado fechado
+      const pp=[{x:X(M.baseYear-1),y:Y(p.base)},...p.linhas.map(l=>({x:X(l.y),y:Y(l.accProj)}))];
+      ctx.save();ctx.setLineDash([7,5]);ctx.strokeStyle='#2dd4bf';ctx.lineWidth=2.5;ctx.beginPath();
+      pp.forEach((pt,i)=>i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y));ctx.stroke();ctx.restore();
+      ctx.fillStyle='#2dd4bf';pp.slice(1).forEach(pt=>{ctx.beginPath();ctx.arc(pt.x,pt.y,3.5,0,Math.PI*2);ctx.fill();});
+      // marcador do cruzamento
+      if(p.cruza){
+        const cx=X(p.cruza.y),cy=Y(p.cruza.accProj);
+        ctx.strokeStyle='#34d399';ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,7,0,Math.PI*2);ctx.stroke();
+        ctx.fillStyle='#34d399';ctx.font='900 12px '+FONT;ctx.textAlign='center';ctx.textBaseline='bottom';
+        ctx.fillText(p.cruza.y,cx,cy-12);
+      }
+      // eixo x
+      ctx.fillStyle=th.muted;ctx.font='12px '+FONT;ctx.textAlign='center';ctx.textBaseline='top';
+      anos.forEach(y=>ctx.fillText(y,X(y),top+plotH+12));
+    }
+
     // Matriz empresa x ano, compartilhada pelo grafico e pela tabela.
     function empresaMatrix(rows){
       const anos=[...new Set(rows.map(d=>d.y))].filter(y=>/^\d{4}$/.test(y)).sort((a,b)=>+a-+b);
@@ -453,4 +611,6 @@ if ($outputDirectory -and -not (Test-Path -LiteralPath $outputDirectory)) {
 [IO.File]::WriteAllText($OutputPath, $html, [Text.UTF8Encoding]::new($false))
 
 Write-Host "Dashboard gerado: $OutputPath"
-Write-Host "Registros no período: $includedCount | Bairros: $($neighborhoods.Count) | Duplicidades removidas: $duplicateRows"
+Write-Host "Eventos no CSV: $($rows.Count) | Hidrômetros distintos: $($meters.Count) | Reinstalações: $reinstalls"
+Write-Host "Hidrômetros distintos desde 2016: $includedCount (ativos: $activeCount) | Bairros: $($neighborhoods.Count)"
+Write-Host "Anteriores a 2016: $excludedBeforePeriod | Datas futuras: $futureDates | Datas inválidas: $invalidDates"
