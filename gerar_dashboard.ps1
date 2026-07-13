@@ -173,7 +173,7 @@ $html = @'
 
     main{width:min(1540px,94vw);margin:0 auto 3rem;position:relative;z-index:2}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:22px;box-shadow:var(--shadow)}
-    .filters{padding:1.05rem 1.15rem;display:grid;grid-template-columns:repeat(4,minmax(150px,1fr)) auto;gap:14px;align-items:end}
+    .filters{padding:1.05rem 1.15rem;display:grid;grid-template-columns:repeat(5,minmax(140px,1fr)) auto;gap:14px;align-items:end}
     label{display:block;color:var(--label);font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.09em;margin:0 0 .5rem}
     select,input{width:100%;height:46px;border:1px solid var(--border);border-radius:14px;background:var(--input-bg);color:var(--text);padding:0 14px;outline:none;transition:.18s ease}
     select:focus,input:focus{border-color:var(--brand);box-shadow:0 0 0 4px var(--brand-soft)}
@@ -210,6 +210,9 @@ $html = @'
     .dot{width:10px;height:10px;border-radius:999px}
     .legend-row b{font-variant-numeric:tabular-nums;font-weight:800}
     .legend-row small{color:var(--muted)}
+    .legend-inline{display:flex;flex-wrap:wrap;gap:.55rem 1.4rem;margin-top:1.1rem}
+    .legend-inline .legend-row{display:flex;gap:.5rem;align-items:center;border-bottom:0;padding:0}
+    .legend-inline .legend-row span{font-weight:700}
 
     .table-card{padding:1.35rem 1.4rem}
     .table-tools{display:flex;gap:10px;align-items:end}.table-tools input{width:min(300px,42vw);height:40px;border-radius:11px}
@@ -248,6 +251,7 @@ $html = @'
       <div><label for="fBairro">Bairro</label><select id="fBairro"></select></div>
       <div><label for="fSituacao">Situação da água</label><select id="fSituacao"></select></div>
       <div><label for="fConsumo">Tipo de consumo</label><select id="fConsumo"></select></div>
+      <div><label for="fEmpresa">Empresa contratada</label><select id="fEmpresa"></select></div>
       <button id="reset">Limpar filtros</button>
     </section>
 
@@ -282,6 +286,12 @@ $html = @'
       </article>
     </section>
 
+    <section class="card chart-card" style="margin-bottom:14px">
+      <div class="chart-head"><div><h2>Instalações por ano e empresa contratada</h2><p>Sucessão dos contratos: cada empresa ocupa um período distinto. "FORA DOS CONTRATOS" reúne o que não está atribuído a nenhuma contratada.</p></div></div>
+      <div class="canvas-scroll" id="empresaScroll"><canvas id="empresaChart"></canvas></div>
+      <div class="legend legend-inline" id="empresaLegend"></div>
+    </section>
+
     <section class="card table-card">
       <div class="chart-head"><div><h2>Ranking completo de bairros</h2><p id="tableSummary">Todos os bairros do recorte</p></div><div class="table-tools"><input id="bairroSearch" type="search" placeholder="Pesquisar bairro..." aria-label="Pesquisar bairro"><button class="btn-primary" id="exportCsv">Exportar ranking CSV</button></div></div>
       <div class="table-wrap"><table><thead><tr><th>#</th><th>Bairro</th><th>Empresa Cadastrada</th><th>Instalações</th><th>Participação</th></tr></thead><tbody id="bairroTable"></tbody></table></div>
@@ -298,8 +308,18 @@ $html = @'
     const nf=new Intl.NumberFormat('pt-BR');
     const pf=new Intl.NumberFormat('pt-BR',{style:'percent',minimumFractionDigits:1,maximumFractionDigits:1});
     const $=id=>document.getElementById(id);
-    const filters={year:$('fYear'),bairro:$('fBairro'),situacao:$('fSituacao'),consumo:$('fConsumo')};
+    const filters={year:$('fYear'),bairro:$('fBairro'),situacao:$('fSituacao'),consumo:$('fConsumo'),empresa:$('fEmpresa')};
     let currentRows=[],bairroRanking=[];
+    // Ordem estavel das empresas: pelo primeiro ano de atuacao, para a sucessao
+    // de contratos ser lida da esquerda para a direita no empilhamento.
+    const empresaOrder=(()=>{const first=new Map();BI.data.forEach(d=>{const y=Number(d.y);if(!Number.isFinite(y))return;if(!first.has(d.e)||y<first.get(d.e))first.set(d.e,y)});return [...first].sort((a,b)=>a[1]-b[1]||a[0].localeCompare(b[0],'pt-BR')).map(x=>x[0]);})();
+    // "FORA DOS CONTRATOS" nao e uma contratada, e o resto nao atribuido: fica
+    // em cinza neutro, e as cores vivas ficam so para as empresas de fato.
+    const SEM_CONTRATO='FORA DOS CONTRATOS';
+    const contratadas=empresaOrder.filter(e=>e!==SEM_CONTRATO);
+    // Matizes bem separados: empresas que se empilham no mesmo ano nao colidem.
+    const CORES_EMPRESA=['#0ea5e9','#fbbf24','#34d399','#fb7185','#a78bfa','#2dd4bf','#f472b6'];
+    const empresaColor=e=>e===SEM_CONTRATO?'#94a3b8':CORES_EMPRESA[Math.max(0,contratadas.indexOf(e))%CORES_EMPRESA.length];
 
     function uniq(field){return [...new Set(BI.data.map(d=>d[field]))].sort((a,b)=>field==='y'?(Number(a)||9999)-(Number(b)||9999):a.localeCompare(b,'pt-BR'));}
     function fillSelect(el,values,label){el.innerHTML=`<option value="">${label}</option>`+values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');}
@@ -307,6 +327,7 @@ $html = @'
     function init(){
       fillSelect(filters.year,uniq('y'),'Todos os anos');fillSelect(filters.bairro,uniq('b'),'Todos os bairros');
       fillSelect(filters.situacao,uniq('s'),'Todas as situações');fillSelect(filters.consumo,uniq('c'),'Todos os tipos');
+      fillSelect(filters.empresa,empresaOrder,'Todas as empresas');
       Object.values(filters).forEach(el=>el.addEventListener('change',render));
       $('bairroLimit').addEventListener('change',()=>drawBairros(bairroRanking));
       $('bairroSearch').addEventListener('input',renderTable);
@@ -323,7 +344,7 @@ $html = @'
     }
     function debounce(fn,ms){let t;return()=>{clearTimeout(t);t=setTimeout(fn,ms)}}
     function syncTheme(){$('themeToggle').textContent=document.documentElement.dataset.theme==='dark'?'Tema claro':'Tema escuro';}
-    function filtered(){return BI.data.filter(d=>(!filters.year.value||d.y===filters.year.value)&&(!filters.bairro.value||d.b===filters.bairro.value)&&(!filters.situacao.value||d.s===filters.situacao.value)&&(!filters.consumo.value||d.c===filters.consumo.value));}
+    function filtered(){return BI.data.filter(d=>(!filters.year.value||d.y===filters.year.value)&&(!filters.bairro.value||d.b===filters.bairro.value)&&(!filters.situacao.value||d.s===filters.situacao.value)&&(!filters.consumo.value||d.c===filters.consumo.value)&&(!filters.empresa.value||d.e===filters.empresa.value));}
     function group(rows,field){const m=new Map();rows.forEach(d=>m.set(d[field],(m.get(d[field])||0)+d.n));return [...m].map(([label,value])=>({label,value}));}
     function total(rows){return rows.reduce((s,d)=>s+d.n,0)}
     function render(){currentRows=filtered();const t=total(currentRows);
@@ -343,7 +364,37 @@ $html = @'
       $('kTotal').textContent=nf.format(t);$('kBairros').textContent=nf.format(bairroRanking.length);$('kLigado').textContent=t?pf.format(ligados/t):'0%';$('kLigadoSub').textContent=`${nf.format(ligados)} ligações`;$('kReal').textContent=t?pf.format(reais/t):'0%';$('kRealSub').textContent=`${nf.format(reais)} instalações`;
       $('kTotalSub').textContent=t===BI.total?'instalações desde 2016':'no recorte selecionado';renderCharts();renderTable();
     }
-    function renderCharts(){drawYears(group(currentRows,'y'));drawDonut(group(currentRows,'s').sort((a,b)=>b.value-a.value));drawBairros(bairroRanking);drawConsumption(group(currentRows,'c').sort((a,b)=>b.value-a.value));}
+    function renderCharts(){drawYears(group(currentRows,'y'));drawDonut(group(currentRows,'s').sort((a,b)=>b.value-a.value));drawBairros(bairroRanking);drawConsumption(group(currentRows,'c').sort((a,b)=>b.value-a.value));drawEmpresaAno(currentRows);}
+    function drawEmpresaAno(rows){
+      const wrap=$('empresaScroll'),legend=$('empresaLegend');
+      const anos=[...new Set(rows.map(d=>d.y))].filter(y=>/^\d{4}$/.test(y)).sort((a,b)=>+a-+b);
+      const ativas=empresaOrder.filter(e=>rows.some(d=>d.e===e));
+      if(!anos.length||!ativas.length){legend.innerHTML='';return noData(wrap,'empresaChart');}
+      const cel=new Map();rows.forEach(d=>{if(!/^\d{4}$/.test(d.y))return;const k=d.y+'|'+d.e;cel.set(k,(cel.get(k)||0)+d.n);});
+      const totAno=a=>ativas.reduce((s,e)=>s+(cel.get(a+'|'+e)||0),0);
+      const th=T(),max=Math.max(...anos.map(totAno),1);
+      const w=Math.max(wrap.clientWidth||600,anos.length*78+80),h=380;
+      const ctx=setupCanvas($('empresaChart'),w,h),left=62,right=18,top=34,bottom=54;
+      const plotW=w-left-right,plotH=h-top-bottom;
+      ctx.strokeStyle=th.grid;ctx.fillStyle=th.muted;ctx.textAlign='right';ctx.textBaseline='middle';
+      for(let i=0;i<=4;i++){const y=top+plotH*i/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillText(compact(max*(1-i/4)),left-8,y);}
+      const step=plotW/anos.length,bw=Math.max(14,Math.min(56,step*.62));
+      anos.forEach((a,i)=>{
+        const tot=totAno(a);if(!tot)return;
+        const x=left+i*step+(step-bw)/2;let acc=0;
+        ativas.forEach(e=>{
+          const v=cel.get(a+'|'+e)||0;if(!v)return;
+          const segH=v/max*plotH,y=top+plotH-(acc+v)/max*plotH;
+          ctx.fillStyle=empresaColor(e);ctx.fillRect(x,y,bw,segH);acc+=v;
+        });
+        ctx.fillStyle=th.text;ctx.font='800 11px '+FONT;ctx.textAlign='center';ctx.textBaseline='bottom';
+        ctx.fillText(nf.format(tot),x+bw/2,Math.max(14,top+plotH-tot/max*plotH-5));
+        ctx.font='12px '+FONT;ctx.fillStyle=th.muted;ctx.textBaseline='top';ctx.fillText(a,x+bw/2,top+plotH+10);
+      });
+      const totGeral=rows.reduce((s,d)=>s+d.n,0);
+      legend.innerHTML=ativas.map(e=>{const v=rows.filter(d=>d.e===e).reduce((s,d)=>s+d.n,0);const ys=anos.filter(a=>cel.get(a+'|'+e));const per=ys.length?(ys[0]===ys[ys.length-1]?ys[0]:ys[0]+'–'+ys[ys.length-1]):'';
+        return `<div class="legend-row"><i class="dot" style="background:${empresaColor(e)}"></i><span>${esc(e)}</span><small>${per} · ${nf.format(v)} (${totGeral?pf.format(v/totGeral):'0,0%'})</small></div>`;}).join('');
+    }
     function setupCanvas(canvas,w,h){const dpr=Math.min(window.devicePixelRatio||1,2);canvas.style.width=w+'px';canvas.style.height=h+'px';canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.font='12px '+FONT;return ctx;}
     function roundedRect(ctx,x,y,w,h,r){r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
     function noData(container,id){const c=$(id);const ctx=setupCanvas(c,Math.max(container.clientWidth,300),250);ctx.fillStyle=T().muted;ctx.textAlign='center';ctx.fillText('Nenhum dado para os filtros selecionados',c.clientWidth/2,125)}
