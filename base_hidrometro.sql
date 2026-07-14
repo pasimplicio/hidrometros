@@ -170,7 +170,7 @@ SELECT
        Faixas half-open [inicio, fim+1):  >= inicio AND < fim_exclusivo.
        O BETWEEN anterior truncava o último dia à meia-noite caso a coluna seja
        timestamp - instalações feitas ao longo do dia final do contrato caíam
-       em 'FORA DOS CONTRATOS'. Assim funciona para date e para timestamp.
+       em 'EQUIPE CAEMA'. Assim funciona para date e para timestamp.
        ------------------------------------------------------------------------- */
     CASE
         /* ALLSAN: 26/08/2019 a 28/02/2021 */
@@ -200,16 +200,16 @@ SELECT
 
         /* FIMM: a partir de 15/05/2025, SEM data final.
            O fim estava fixo em 09/07/2026 - como o contrato segue vigente, cada
-           dia que passava jogava as instalações novas da FIMM em 'FORA DOS
-           CONTRATOS' (eram os 20 registros de julho/2026). Quando o contrato
-           encerrar de fato, feche a janela com o < da data seguinte. */
+           dia que passava jogava as instalações novas da FIMM em 'EQUIPE CAEMA'
+           (eram os 20 registros de julho/2026). Quando o contrato encerrar de
+           fato, feche a janela com o < da data seguinte. */
         WHEN ib.hidi_dtinstalacaohidrometro >= DATE '2025-05-15'
             THEN 'FIMM BRASIL LTDA'
 
-        /* Cesta residual. Reúne coisas distintas:
+        /* Execução própria da CAEMA - tudo que não caiu em janela de contrato:
            - instalações anteriores ao 1º contrato (2016 a ago/2019);
            - os vãos ENTRE contratos, sobretudo 28/09/2024 a 14/05/2025. */
-        ELSE 'FORA DOS CONTRATOS'
+        ELSE 'EQUIPE CAEMA'
     END                              AS "EMPRESA CONTRATADA",
 
     tc.tipoConsumoAgua               AS "TIPO CONSUMO AGUA",

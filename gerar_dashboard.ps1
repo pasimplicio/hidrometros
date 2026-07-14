@@ -12,6 +12,14 @@ function Clean-Value([object]$Value) {
     return $text
 }
 
+# A execução própria da CAEMA passou a se chamar 'EQUIPE CAEMA'. A query já
+# emite o nome novo, mas CSVs gerados antes ainda trazem 'FORA DOS CONTRATOS':
+# normaliza as duas cargas.
+function Rename-Empresa([string]$Empresa) {
+    if ($Empresa -eq 'FORA DOS CONTRATOS') { return 'EQUIPE CAEMA' }
+    return $Empresa
+}
+
 if (-not (Test-Path -LiteralPath $CsvPath)) {
     throw "CSV não encontrado: $CsvPath"
 }
@@ -61,7 +69,7 @@ foreach ($row in $rows) {
     $meters[$serial] = [pscustomobject]@{
         Dt      = $parsedDate.Date
         Bairro  = Clean-Value $row.BAIRRO
-        Empresa = Clean-Value $row.'EMPRESA CONTRATADA'
+        Empresa = Rename-Empresa (Clean-Value $row.'EMPRESA CONTRATADA')
         Situacao = Clean-Value $row.'SITUACAO AGUA'
         Consumo = Clean-Value $row.'TIPO CONSUMO AGUA'
         Status  = Clean-Value $row.'STATUS HIDROMETRO'
@@ -361,7 +369,7 @@ $html = @'
     </section>
 
     <section class="card chart-card" style="margin-bottom:14px">
-      <div class="chart-head"><div><h2>Instalações por ano e empresa contratada</h2><p>Sucessão dos contratos: cada empresa ocupa um período distinto. "FORA DOS CONTRATOS" reúne o que não está atribuído a nenhuma contratada.</p></div></div>
+      <div class="chart-head"><div><h2>Instalações por ano e empresa contratada</h2><p>Sucessão dos contratos: cada empresa ocupa um período distinto. "EQUIPE CAEMA" reúne a execução própria, fora das janelas de contrato.</p></div></div>
       <div class="canvas-scroll" id="empresaScroll"><canvas id="empresaChart"></canvas></div>
       <div class="table-wrap matrix-wrap"><table class="matrix"><thead id="empresaMatrixHead"></thead><tbody id="empresaMatrixBody"></tbody><tfoot id="empresaMatrixFoot"></tfoot></table></div>
     </section>
@@ -387,9 +395,9 @@ $html = @'
     // Ordem estavel das empresas: pelo primeiro ano de atuacao, para a sucessao
     // de contratos ser lida da esquerda para a direita no empilhamento.
     const empresaOrder=(()=>{const first=new Map();BI.data.forEach(d=>{const y=Number(d.y);if(!Number.isFinite(y))return;if(!first.has(d.e)||y<first.get(d.e))first.set(d.e,y)});return [...first].sort((a,b)=>a[1]-b[1]||a[0].localeCompare(b[0],'pt-BR')).map(x=>x[0]);})();
-    // "FORA DOS CONTRATOS" nao e uma contratada, e o resto nao atribuido: fica
-    // em cinza neutro, e as cores vivas ficam so para as empresas de fato.
-    const SEM_CONTRATO='FORA DOS CONTRATOS';
+    // "EQUIPE CAEMA" e execucao propria, nao uma contratada: fica em cinza
+    // neutro, e as cores vivas ficam so para as empresas contratadas.
+    const SEM_CONTRATO='EQUIPE CAEMA';
     const contratadas=empresaOrder.filter(e=>e!==SEM_CONTRATO);
     // Matizes bem separados: empresas que se empilham no mesmo ano nao colidem.
     const CORES_EMPRESA=['#0ea5e9','#fbbf24','#34d399','#fb7185','#a78bfa','#2dd4bf','#f472b6'];
